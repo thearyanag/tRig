@@ -1,0 +1,18 @@
+.build/
+.DS_Store
+__pycache__/
+**/xcuserdata/
+**/.swiftpm/
+*.xcuserstate
+Configuration/Local.xcconfig
+Configuration/Telegram.local.json
+Configuration/CodexBridge.local.json
+Packages/TelemoCore/Vendor/
+
+# Local research and private verification artifacts
+.local-artifacts/
+**/dist/
+**/node_modules/
+.env
+.env.*
+!.env.example
