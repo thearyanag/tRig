@@ -18,7 +18,11 @@ let workspace;
 let disposed = false;
 let appActive = true;
 const feed = createMarketFeed({ asset, report, currentResolution: () => workspace?.chart.market.timeframe || '1D' });
-function updateActivity() { feed.setActive(appActive && !document.hidden); }
+function updateActivity() {
+  const visible = appActive && !document.hidden;
+  feed.setActive(visible);
+  if (visible && workspace && !disposed) requestAnimationFrame(() => workspace?.chart.resize());
+}
 window.chartHost = {
   setActive(value) { appActive = value; updateActivity(); },
   dispose() {
@@ -48,7 +52,7 @@ try {
     workspace.context().setPriceStyle(event.target.value);
   });
   updateActivity();
-  workspace.chart.ready().catch(error => { if (!disposed) report('error', error.message); });
+  workspace.chart.ready().then(() => { if (!disposed) workspace.chart.resize(); }).catch(error => { if (!disposed) report('error', error.message); });
 } catch (error) {
   report('error', `Chart could not start: ${error.message}`);
   const text = document.createElement('p'); text.textContent = error.message;

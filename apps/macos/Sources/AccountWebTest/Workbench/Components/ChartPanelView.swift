@@ -26,7 +26,7 @@ struct ChartPanelView: View {
         )
       } else if let baseURL = backend.baseURL {
         VelaChartWebView(
-          baseURL: baseURL, asset: asset, status: status, isActive: scenePhase != .background,
+          baseURL: baseURL, asset: asset, status: status, isActive: scenePhase == .active,
           reloadID: reloadID
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
