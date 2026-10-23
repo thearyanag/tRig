@@ -1,0 +1,3 @@
+html, body, #chart { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+html { background: #202020; color-scheme: dark; font-family: -apple-system, sans-serif; }
+html.light { background: #ffffff; color-scheme: light; }

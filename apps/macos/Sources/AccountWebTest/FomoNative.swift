@@ -111,6 +111,7 @@ final class FomoNativeModel: ObservableObject {
     @Published var busy = false
     @Published var trades: [FomoTrade] = []
     @Published var theses: [FomoThesis] = []
+    @Published var thesisSource = ""
     @Published var selectedTrade = ""
     @Published var tokenInput = "pumpCmXqMfrsAkQ5r49WcJnRayYRqmXz6ae8H7H9Dfn"
     @Published var postText = ""
@@ -227,6 +228,7 @@ final class FomoNativeModel: ObservableObject {
                 guard let result = try await get(["feed", "token", "thesis"], query: [.init(name: "tokenAddress", value: token), .init(name: "networkId", value: "1399811149")]) as? [String: Any] else { throw FomoFailure(message: "Unexpected thesis feed response.") }
                 let items = result["items"] as? [[String: Any]] ?? []
                 theses = items.prefix(10).compactMap(FomoRules.thesis)
+                thesisSource = "Fomo source: Solana token " + token
                 diagnostics = "Feed fields: " + result.keys.sorted().joined(separator: ", ") + "\nFirst item: " + (items.first?.keys.sorted().joined(separator: ", ") ?? "none")
                 if let first = items.first {
                     for (key, value) in first { if let dict = value as? [String: Any] { diagnostics += "\n\(key) fields: " + dict.keys.sorted().joined(separator: ", ") } }
@@ -246,6 +248,7 @@ final class FomoNativeModel: ObservableObject {
                 guard let result = try await get(["trades", id, "comments"]) as? [String: Any] else { throw FomoFailure(message: "Unexpected comments response.") }
                 let rows = result["comments"] as? [[String: Any]] ?? []
                 theses = rows.prefix(10).compactMap(FomoRules.thesis)
+                thesisSource = "Fomo source: trade " + id
                 status = "Read \(theses.count) theses/comments for the selected trade."
             } catch { status = errorMessage(error) }
         }
@@ -289,6 +292,7 @@ final class FomoNativeModel: ObservableObject {
                           let rows = result["comments"] as? [[String: Any]],
                           rows.contains(where: { ($0["id"] as? String) == id && ($0["userId"] as? String) == reviewed.profile.id && ($0["comment"] as? String) == reviewed.text }) else { throw FomoFailure(message: "Read-back mismatch.") }
                     theses = rows.prefix(10).compactMap(FomoRules.thesis)
+                    thesisSource = "Fomo source: trade " + reviewed.trade.id
                     status = "Published and read back. Thesis ID: \(id)"
                 } catch { status = "Fomo accepted thesis \(id); read-back is unverified. Read the selected trade again; do not repost." }
             } catch { status = errorMessage(error) + (dispatched ? " Submission was attempted and will not be retried. Check the trade's theses before posting again." : " No post sent.") }

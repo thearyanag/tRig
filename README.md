@@ -73,6 +73,8 @@ Actions should make the account, destination, and outcome clear. Trading and wal
 
 The first macOS prototype is in [`apps/macos`](apps/macos). It includes:
 
+- A native workbench with asset search, a persistent watchlist, and a shared asset selection.
+- TradingView charts backed by a local Rust market-data service (separately installed chart library required).
 - Separate, persistent Pump and Fomo website sessions.
 - Native profile and social-content reads.
 - Reviewed callout and thesis publishing to Pump and Fomo.
@@ -84,11 +86,13 @@ Telegram connectivity has been prototyped separately through TDLib and is not in
 
 ## Run the macOS prototype
 
-Requires macOS 14 or later and Xcode 26 with the Swift 6.2 toolchain selected. No third-party Swift packages or API key are needed to build the app.
+Requires macOS 14 or later, Xcode 26 / Swift 6.2, and Rust/Cargo. Node.js is used for chart-host tests. No third-party Swift packages or API key are needed. TradingView’s proprietary library is an optional, separately installed dependency; without it the app builds with chart setup guidance.
 
 ```sh
 cd apps/macos
 swift test
+cargo test --manifest-path backend/trading-data/Cargo.toml --locked
+node --test Tests/ChartHost/chart-datafeed.test.cjs
 ./script/build_and_run.sh
 ```
 

@@ -53,16 +53,16 @@ struct ChatGPTSidebar: View {
     @ObservedObject var account: ChatGPTAccount
     @ObservedObject var conversation: ChatGPTConversation
     @ObservedObject var session: BrowserSession
+    var assetContext: String? = nil
     var useDraft: (String) -> Void
     private var context: String {
-        if session.service == .pump {
-            return session.callouts.callouts.prefix(10).map {
-                "Author: \($0.userName ?? $0.userId)\nCoin: \($0.coinMint)\nSource: \($0.link.absoluteString)\nPost: \(String(($0.thesis ?? "").prefix(2500)))"
-            }.joined(separator: "\n\n")
+        switch session.service {
+        case .pump:
+            ResearchContext.pump(assetContext: assetContext, callouts: session.callouts.callouts)
+        case .fomo:
+            ResearchContext.fomo(assetContext: assetContext, source: session.fomoNative.thesisSource,
+                                 theses: session.fomoNative.theses)
         }
-        return session.fomoNative.theses.prefix(10).map {
-            "Author: \($0.author)\nFomo thesis ID: \($0.id)\nPost: \(String($0.text.prefix(2500)))"
-        }.joined(separator: "\n\n")
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -127,7 +127,7 @@ struct ChatGPTSidebar: View {
                 }.font(.caption)
             }
             HStack {
-                Button("Attach loaded posts") { conversation.attachment = context }.disabled(context.isEmpty || conversation.generating)
+                Button(assetContext == nil ? "Attach loaded posts" : "Attach research context") { conversation.attachment = context }.disabled(context.isEmpty || conversation.generating)
                 Spacer()
                 Button("Clear chat") { conversation.clear() }.disabled(conversation.generating)
             }.font(.caption)

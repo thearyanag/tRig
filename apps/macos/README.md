@@ -1,11 +1,13 @@
 # tRig for macOS
 
-An early SwiftUI workbench connecting Pump, Fomo, and ChatGPT. It combines persistent website sign-in with native profile reads, social-content tools, and an assistant sidebar.
+An early SwiftUI workbench connecting market charts, Pump, Fomo, and ChatGPT. Workbench mode brings together native asset search, a saved watchlist, TradingView charts, and the research sidebar. Connections mode retains the official website views for sign-in and account use.
 
 ## Requirements
 
 - macOS 14 or later.
 - Xcode 26 / Swift 6.2 selected as the active developer toolchain.
+- Rust/Cargo for the bundled market-data service.
+- Node.js to run chart-host tests.
 - Existing Pump/Fomo accounts for authenticated integration testing.
 - An eligible ChatGPT account granting plan usage to test the assistant.
 
@@ -17,6 +19,8 @@ From this directory:
 
 ```sh
 swift test
+cargo test --manifest-path backend/trading-data/Cargo.toml --locked
+node --test Tests/ChartHost/chart-datafeed.test.cjs
 ./script/build_and_run.sh
 ```
 
@@ -27,14 +31,14 @@ Additional modes:
 ./script/build_and_run.sh --verify
 ```
 
-`--build-only` creates `dist/tRig.app` without stopping or launching an app. The normal run mode stops the existing prototype process, builds, signs the bundle ad hoc, and launches it. `--verify` also checks that the process started. Ad-hoc signing is for local development, not a notarized distribution build.
+`--build-only` creates `dist/tRig.app` without stopping or launching an app. The normal run mode compiles first, stops the existing prototype process only after compilation succeeds, signs the bundle ad hoc, and launches it. `--verify` also checks that the process started. Ad-hoc signing is for local development, not a notarized distribution build.
 
 The Swift executable/module remains `AccountWebTest` and the bundle identifier remains `local.telemo.AccountWebTest` temporarily. Keeping these identifiers preserves existing prototype website sessions and ChatGPT registrations. New installs use the same isolated storage layout; credentials are never included in the repository. A future identity migration should explicitly migrate storage before changing these identifiers.
 
 ## Using the prototype
 
-1. Select Pump or Fomo and sign in through the official website view. Each service has a separate persistent WebKit data store.
-2. Open **Native tools**. For Pump, refresh the profile and enter a callout link or Solana coin address. For Fomo, enter your own profile handle, load its trades, or read a token’s theses.
+1. Open **Connections**, select Pump or Fomo, and sign in through the official website view. Each service has a separate persistent WebKit data store.
+2. In **Workbench**, use **⌘K** to search a Solana asset by name, ticker, or contract address. Star it to save it to your watchlist; the header, chart and research selection follow the same asset. **Read Pump/Fomo discussions** loads posts for that selected asset. Open **Native tools**. For Pump, refresh the profile and enter a callout link or Solana coin address. For Fomo, enter your own profile handle, load its trades, or read a token’s theses.
 3. To publish, enter text and select the target coin/trade. Review the account, destination, and exact text before using the publish button. These actions create real public posts.
 4. Open **Assistant**, choose **Continue with ChatGPT**, and finish authorization in the system browser. The model picker is populated from the connected account.
 5. Ask a question, or explicitly attach posts already loaded in the native tools. **Use as draft** copies a completed answer to the composer for review; it does not publish it.
@@ -47,14 +51,20 @@ The Pump composer checks posting eligibility and verifies its current session ac
 
 | File | Responsibility |
 | --- | --- |
-| `Sources/AccountWebTest/AccountWebTest.swift` | App shell, separate WebKit sessions, navigation and login popups |
+| `Sources/AccountWebTest/App` | App entry point, lifecycle and shared ChatGPT account ownership |
+| `Sources/AccountWebTest/Views` | Workbench/connections shell, research sidebar and WebKit wrappers |
+| `Sources/AccountWebTest/Services/BrowserSession.swift` | Separate website sessions and navigation/login coordination |
+| `Sources/AccountWebTest/Models` | Service identity and bounded research-context formatting |
 | `Sources/AccountWebTest/PumpProfile.swift` | Pump session-scoped native profile reads |
 | `Sources/AccountWebTest/PumpCallouts.swift` | Callout reads, eligibility checks, reviewed publishing and read-back |
 | `Sources/AccountWebTest/FomoNative.swift` | Fomo profile/trade/thesis reads, reviewed publishing and rate-limit hints |
 | `Sources/AccountWebTest/ChatGPTOAuth.swift` | Loopback callback, PKCE, state validation and RSA ID-token verification |
 | `Sources/AccountWebTest/ChatGPTAccount.swift` | Protected account storage, model discovery, token refresh and streamed inference |
 | `Sources/AccountWebTest/ChatGPTSidebar.swift` | Separate conversations, explicit context attachments and draft handoff |
-| `Tests/AccountWebTestTests` | Credential scope, input validation, OAuth and streaming tests |
+| `Sources/AccountWebTest/Workbench` | Imported native search, watchlist, chart, sample ticket and market-data bridge |
+| `backend/trading-data` | Rust loopback service for discovery and cached GeckoTerminal candles |
+| `Tests/ChartHost` | JavaScript chart datafeed tests |
+| `Tests/AccountWebTestTests` | Credential scope, input validation, OAuth, streaming, watchlist and ticket tests |
 
 ## Sessions and credentials
 
@@ -62,7 +72,7 @@ The Pump composer checks posting eligibility and verifies its current session ac
 - Native requests forward only the selected service’s scoped credentials to fixed API hosts. They do not forward Google cookies or service refresh tokens. Redirects are disabled for these native requests.
 - ChatGPT uses the documented [personal-local/OSS sign-in flow](https://developers.openai.com/cookbook/articles/sign-in-with-chatgpt). It does not read credentials from Codex or another app.
 - ChatGPT credentials are stored under the app container’s `Application Support/AccountWebTest/ChatGPT` directory, with directory mode `0700`, file mode `0600`, and atomic writes. Tokens are not logged or attached to model prompts.
-- The app is sandboxed with outbound networking and an inbound-network entitlement for its short-lived OAuth listener. That listener binds only to `127.0.0.1`.
+- The app is sandboxed with outbound networking and an inbound-network entitlement for its short-lived OAuth listener. That listener binds only to `127.0.0.1`. The chart helper also binds only to loopback on an ephemeral port and inherits the parent sandbox. It is stopped when tRig exits, with a parent-process check for abnormal termination.
 - Chat requests use the public Responses API with `store: false` and `stream: true`. A response is complete only after `response.completed`.
 - Conversations stay in memory. Attached posts remain in their conversation until it is cleared. The assistant receives no account balances, cookies, or keys through the attachment feature and has no execution tools.
 
@@ -81,3 +91,32 @@ Current limits:
 - The Fomo composer’s 1,000-character ceiling is a local prototype limit, not a claim about the platform’s maximum.
 
 Review [OpenAI’s current integration eligibility](https://developers.openai.com/siwc/token-sharing-open-source) before changing the distribution model. A working personal-local prototype does not establish eligibility for paid or remotely hosted distribution.
+
+
+## TradingView chart setup
+
+The native workspace, chart adapter, and Rust service were imported from the separate Trading Workspace prototype. The original project is not modified. Existing watchlists from the other application's preferences are not automatically imported; tRig keeps its own persistent watchlist.
+
+TradingView Advanced Charts is proprietary and [must not be included in public repositories](https://www.tradingview.com/charting-library-docs/latest/quick-start/). The library files are deliberately ignored and are not part of tRig's source distribution. Obtain access directly from TradingView and use the library under your applicable agreement.
+
+Place your authorized `charting_library` directory at:
+
+```text
+apps/macos/vendor/tradingview/charting_library/
+```
+
+Or specify its location when building:
+
+```sh
+TRIG_TRADINGVIEW_LIBRARY_PATH=/path/to/charting_library ./script/build_and_run.sh
+```
+
+The build copies these local assets into the generated app only when present. Do not publish that generated app or vendor directory without the applicable distribution rights. Without the library, the app builds and asset search/research remain available; the chart panel explains setup.
+
+The Rust service uses GeckoTerminal for public Solana asset discovery and candles. It chooses the chart route internally, spaces provider requests, caches results and reports errors separately from empty history. Intervals currently include 1m, 5m, 15m, 1h, 4h, 12h and 1D. Active charts refresh on a 30-second timer. Older history is bounded by the provider adapter.
+
+**Sample ticket** toggles the imported buy/sell preview. It uses a reference price with sample balances and fees, and cannot execute orders. The component gallery remains available with **⇧⌘G**; **⌘⌥↑/↓** moves between watched assets.
+
+The assistant can explicitly attach the selected asset identity together with loaded social posts. Each post retains its source asset/trade context; selecting an asset does not silently publish, change an existing draft's destination, or send information to a model.
+
+Merge verification: 37 Swift tests, 10 Rust tests, and 7 JavaScript chart-host tests passed. Both the local build with chart assets and a clean source-only build without them passed signature verification. In the sandboxed app, live candles rendered, native search opened SOL, selection survived an app rebuild/relaunch, and the selected-asset Pump action returned ten callouts for the same contract. No trading, signing, or posting was performed during this merge check.
