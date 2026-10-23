@@ -12,7 +12,7 @@ struct ChartPanelView: View {
     guard let resources = Bundle.main.resourceURL else { return false }
     return FileManager.default.fileExists(
       atPath: resources.appendingPathComponent(
-        "Chart/charting_library/charting_library.standalone.js"
+        "Chart/chart.js"
       ).path)
   }
 
@@ -22,10 +22,10 @@ struct ChartPanelView: View {
         PlaceholderPanel(
           title: "Chart library not installed", systemImage: "chart.xyaxis.line",
           message:
-            "Install your authorized TradingView library and rebuild. See the macOS setup guide. Asset search and research tools remain available."
+            "Rebuild the app to bundle the Vela chart. See the macOS setup guide."
         )
       } else if let baseURL = backend.baseURL {
-        TradingViewWebView(
+        VelaChartWebView(
           baseURL: baseURL, asset: asset, status: status, isActive: scenePhase != .background,
           reloadID: reloadID
         )

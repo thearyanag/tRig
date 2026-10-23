@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>tRig — Chart lab</title></head><body>
+<header class="masthead"><div class="identity"><span class="logo">tRig</span><span class="divider"></span><h1>Chart lab</h1></div><div class="header-actions"><span class="local">Local comparison</span><button id="theme" aria-label="Switch to light theme">Light theme</button></div></header>
+<main>
+<section class="intro"><div><h2>Same market. Two perspectives.</h2><p>Compare the feel of Vela and TradingView Advanced Charts on identical candles.</p></div><div class="layout" role="group" aria-label="Chart layout"><button data-layout="both" aria-pressed="true">Side by side</button><button data-layout="vela" aria-pressed="false">Vela</button><button data-layout="tv" aria-pressed="false">TradingView</button></div></section>
+<section class="controls" aria-label="Shared chart controls">
+<label>Market<select id="symbol"><option value="SOL-USD">SOL / USD</option><option value="BTC-USD">BTC / USD</option><option value="ETH-USD">ETH / USD</option></select></label>
+<label>Interval<select id="interval"><option value="15">15 minutes</option><option value="60" selected>1 hour</option><option value="1D">1 day</option></select></label>
+<label>Data<select id="source"><option value="market">Coinbase snapshot</option><option value="synthetic">Synthetic · 10,000 bars</option></select></label>
+<button id="reload">Reload data</button><div class="control-spacer"></div><button id="reset">Reset view</button><button id="export">Export candles</button>
+</section>
+<section class="data-strip" aria-live="polite"><span id="status">Loading shared candles…</span><span id="fingerprint"></span></section>
+<section class="charts" id="charts" data-layout="both" aria-label="Chart comparison">
+<article class="chart-panel" id="vela-panel"><div class="panel-header"><div><h3>Vela</h3><span>0.9.0 · WebGL2 / Canvas</span></div><button id="match-vela" title="Copy Vela’s visible time range to TradingView">Match TV to this view</button></div><div id="vela-chart" class="chart-host"></div><div class="panel-footer"><a href="https://velacharts.dev" target="_blank" rel="noreferrer">Vela by LuxAlgo</a><span id="vela-status">Starting…</span></div></article>
+<article class="chart-panel" id="tv-panel"><div class="panel-header"><div><h3>TradingView</h3><span>Advanced Charts · local library</span></div><button id="match-tv" title="Copy TradingView’s visible time range to Vela">Match Vela to this view</button></div><div id="tv-chart" class="chart-host"></div><div class="panel-footer"><a href="https://www.tradingview.com" target="_blank" rel="noreferrer">TradingView</a><span id="tv-status">Starting…</span></div></article>
+</section>
+<section class="replay-bar" aria-label="Shared replay"><div><strong>Replay together</strong><span id="replay-label">Reveal the final 60 candles, one at a time.</span></div><button id="replay">Start replay</button><button id="step" disabled>Next candle</button><button id="play" disabled>Play</button><button id="finish" disabled>Show all</button><label>Speed<select id="speed"><option value="1000">1 bar / sec</option><option value="250">4 bars / sec</option></select></label></section>
+<details class="guide"><summary>How to compare</summary><div class="guide-grid"><p><strong>Feel the chart.</strong> Drag to pan, scroll to zoom, resize the window, and try each engine’s drawing and indicator tools. Use a single-chart layout for more room.</p><p><strong>Keep the input fair.</strong> Both engines receive copies of the same OHLCV bars. Data is a fixed snapshot, not a live feed. Replay reveals existing candles; it does not simulate intrabar ticks.</p><p><strong>Know the limits.</strong> History ends at the snapshot boundary. Shared market, interval, data and theme changes restart both charts and clear drawings. Indicators, drawings and panning are otherwise independent.</p></div></details>
+<p id="action-status" role="status"></p>
+</main><script type="module" src="/src/main.ts"></script></body></html>

@@ -5,8 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>tRig chart</title>
   <link rel="stylesheet" href="chart.css">
-  <script defer src="charting_library/charting_library.standalone.js"></script>
   <script defer src="chart.js"></script>
 </head>
-<body><div id="chart"></div></body>
+<body>
+  <div id="controls" role="group" aria-label="Chart controls">
+    <label for="interval">Interval</label>
+    <select id="interval"><option value="1">1m</option><option value="5">5m</option><option value="15">15m</option><option value="60">1h</option><option value="240">4h</option><option value="720">12h</option><option value="1D" selected>1D</option></select>
+    <label for="style">Chart type</label>
+    <select id="style"><option value="candles">Candles</option><option value="bars">Bars</option><option value="line">Line</option><option value="area">Area</option><option value="baseline">Baseline</option><option value="heikinashi">Heikin Ashi</option></select>
+  </div>
+  <div id="chart"></div>
+</body>
 </html>

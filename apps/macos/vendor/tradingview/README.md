@@ -1,7 +1,7 @@
-# Local chart dependency
+# Optional comparison dependency
 
-Place an authorized TradingView Advanced Charts `charting_library/` here, or set `TRIG_TRADINGVIEW_LIBRARY_PATH` when building.
+The macOS app now bundles Vela and does not load this directory.
 
-The library is proprietary and excluded by `.gitignore`. Do not commit it. See the [official setup instructions](https://www.tradingview.com/charting-library-docs/latest/quick-start/) and the [macOS guide](../../README.md#tradingview-chart-setup).
+The separate `apps/chart-compare` experiment can still serve an authorized TradingView Advanced Charts `charting_library/` placed here, or supplied through `TRIG_TRADINGVIEW_LIBRARY_PATH`.
 
-The app can be built without it; chart rendering then shows setup guidance while asset search and research tools remain available.
+The proprietary library remains ignored. Do not commit it. See the [comparison guide](../../../chart-compare/README.md).

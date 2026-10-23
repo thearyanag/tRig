@@ -1,7 +1,7 @@
 import SwiftUI
 import WebKit
 
-struct TradingViewWebView: NSViewRepresentable {
+struct VelaChartWebView: NSViewRepresentable {
   let baseURL: URL
   let asset: Asset
   let status: ChartStatus
@@ -31,8 +31,12 @@ struct TradingViewWebView: NSViewRepresentable {
       URLQueryItem(name: "price", value: asset.priceUsd.map { String($0) } ?? ""),
     ]
     let target = url.url!
-    if context.coordinator.loadedURL != target || context.coordinator.reloadID != reloadID {
-      context.coordinator.loadedURL = target
+    // Live prices update the native asset header; they must not navigate/recreate
+    // the chart that produced them. Price is only an initial formatting hint.
+    url.queryItems?.removeAll { $0.name == "price" }
+    let identity = url.url!
+    if context.coordinator.loadedURL != identity || context.coordinator.reloadID != reloadID {
+      context.coordinator.loadedURL = identity
       context.coordinator.reloadID = reloadID
       context.coordinator.isActive = isActive
       status.phase = "loading"
@@ -61,6 +65,13 @@ struct TradingViewWebView: NSViewRepresentable {
     func userContentController(
       _ controller: WKUserContentController, didReceive message: WKScriptMessage
     ) {
+      guard message.frameInfo.isMainFrame,
+        var source = URLComponents(
+          url: message.frameInfo.request.url ?? URL(fileURLWithPath: "/"),
+          resolvingAgainstBaseURL: false)
+      else { return }
+      source.queryItems?.removeAll { $0.name == "price" }
+      guard source.url == loadedURL else { return }
       status.receive(message.body)
     }
     func webView(_ view: WKWebView, didFinish navigation: WKNavigation!) {

@@ -1,0 +1,9 @@
+{
+  "name": "@trig/macos-chart-host",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": { "build": "node build.mjs", "test": "node --test ../Tests/ChartHost/chart-datafeed.test.cjs" },
+  "dependencies": { "@luxalgo/vela": "0.9.0" },
+  "devDependencies": { "esbuild": "0.25.10" }
+}

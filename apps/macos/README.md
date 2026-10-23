@@ -1,13 +1,13 @@
 # tRig for macOS
 
-An early SwiftUI workbench connecting market charts, Pump, Fomo, and ChatGPT. Workbench mode brings together native asset search, a saved watchlist, TradingView charts, and the research sidebar. Connections mode retains the official website views for sign-in and account use.
+An early SwiftUI workbench connecting market charts, Pump, Fomo, and ChatGPT. Workbench mode brings together native asset search, a saved watchlist, Vela charts, and the research sidebar. Connections mode retains the official website views for sign-in and account use.
 
 ## Requirements
 
 - macOS 14 or later.
 - Xcode 26 / Swift 6.2 selected as the active developer toolchain.
 - Rust/Cargo for the bundled market-data service.
-- Node.js to run chart-host tests.
+- Node.js 22.12+ and npm to bundle the chart and run chart-host tests.
 - Existing Pump/Fomo accounts for authenticated integration testing.
 - An eligible ChatGPT account granting plan usage to test the assistant.
 
@@ -93,25 +93,15 @@ Current limits:
 Review [OpenAI’s current integration eligibility](https://developers.openai.com/siwc/token-sharing-open-source) before changing the distribution model. A working personal-local prototype does not establish eligibility for paid or remotely hosted distribution.
 
 
-## TradingView chart setup
+## Vela chart setup
 
-The native workspace, chart adapter, and Rust service were imported from the separate Trading Workspace prototype. The original project is not modified. Existing watchlists from the other application's preferences are not automatically imported; tRig keeps its own persistent watchlist.
+The chart runs Vela 0.9.0 in WKWebView, using the same local Rust market-data service as native asset search. `script/build_and_run.sh` installs the pinned dependencies in `chart-host/`, bundles the chart locally, and copies the generated assets into the app. No proprietary library download or API key is required.
 
-TradingView Advanced Charts is proprietary and [must not be included in public repositories](https://www.tradingview.com/charting-library-docs/latest/quick-start/). The library files are deliberately ignored and are not part of tRig's source distribution. Obtain access directly from TradingView and use the library under your applicable agreement.
+Vela's Apache-2.0 license and NOTICE are included in `Contents/Resources/Chart/licenses/`, and its visible chart attribution is retained. No Pine Script addon is bundled. JavaScript and chart UI assets are served from the loopback helper, not a CDN.
 
-Place your authorized `charting_library` directory at:
+The host uses standard select controls for the supported intervals and chart styles, with Vela’s built-in indicator and drawing tools. Native asset search owns symbol selection. Chart preferences and drawings are currently scoped to the open chart; changing the selected asset, changing the app theme or reloading the chart recreates it. Background charts stop polling and catch up when resumed. The adapter validates asset identity and ordered OHLCV data before handing it to Vela.
 
-```text
-apps/macos/vendor/tradingview/charting_library/
-```
-
-Or specify its location when building:
-
-```sh
-TRIG_TRADINGVIEW_LIBRARY_PATH=/path/to/charting_library ./script/build_and_run.sh
-```
-
-The build copies these local assets into the generated app only when present. Do not publish that generated app or vendor directory without the applicable distribution rights. Without the library, the app builds and asset search/research remain available; the chart panel explains setup.
+The separate [browser comparison](../chart-compare/README.md) remains available for side-by-side testing. Its TradingView pane still requires an authorized local library; the macOS app no longer uses that dependency.
 
 The Rust service uses GeckoTerminal for public Solana asset discovery and candles. It chooses the chart route internally, spaces provider requests, caches results and reports errors separately from empty history. Intervals currently include 1m, 5m, 15m, 1h, 4h, 12h and 1D. Active charts refresh on a 30-second timer. Older history is bounded by the provider adapter.
 
@@ -119,4 +109,4 @@ The Rust service uses GeckoTerminal for public Solana asset discovery and candle
 
 The assistant can explicitly attach the selected asset identity together with loaded social posts. Each post retains its source asset/trade context; selecting an asset does not silently publish, change an existing draft's destination, or send information to a model.
 
-Merge verification: 37 Swift tests, 10 Rust tests, and 7 JavaScript chart-host tests passed. Both the local build with chart assets and a clean source-only build without them passed signature verification. In the sandboxed app, live candles rendered, native search opened SOL, selection survived an app rebuild/relaunch, and the selected-asset Pump action returned ten callouts for the same contract. No trading, signing, or posting was performed during this merge check.
+Validation commands above cover Swift models, the Rust service, and the Vela provider's history boundaries, subscription lifecycle, stale-response handling and asset identity checks. Live rendering must also be verified in the sandboxed app when changing the chart integration.

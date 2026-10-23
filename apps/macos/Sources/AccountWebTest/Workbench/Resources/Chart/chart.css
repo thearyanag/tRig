@@ -1,3 +1,9 @@
-html, body, #chart { width: 100%; height: 100%; margin: 0; overflow: hidden; }
-html { background: #202020; color-scheme: dark; font-family: -apple-system, sans-serif; }
-html.light { background: #ffffff; color-scheme: light; }
+html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+html { background: #14161b; color: #d5d9e0; color-scheme: dark; font-family: -apple-system, sans-serif; }
+html.light { background: #ffffff; color: #283344; color-scheme: light; }
+#chart { position: absolute; inset: 38px 0 0; width: 100%; height: calc(100% - 38px); }
+#controls { box-sizing: border-box; height: 38px; display: flex; align-items: center; gap: 9px; padding: 6px 12px; border-bottom: 1px solid #34363d; font-size: 12px; }
+#controls label:not(:first-child) { margin-left: 12px; }
+#controls select { font: inherit; color: inherit; background: transparent; border: 1px solid #565b65; border-radius: 5px; padding: 3px 7px; }
+#controls select:focus-visible { outline: 2px solid #6aaaff; outline-offset: 2px; }
+.light #controls { border-bottom-color: #e1e5eb; }

@@ -74,7 +74,7 @@ Actions should make the account, destination, and outcome clear. Trading and wal
 The first macOS prototype is in [`apps/macos`](apps/macos). It includes:
 
 - A native workbench with asset search, a persistent watchlist, and a shared asset selection.
-- TradingView charts backed by a local Rust market-data service (separately installed chart library required).
+- Bundled Vela charts backed by a local Rust market-data service.
 - Separate, persistent Pump and Fomo website sessions.
 - Native profile and social-content reads.
 - Reviewed callout and thesis publishing to Pump and Fomo.
@@ -86,7 +86,7 @@ Telegram connectivity has been prototyped separately through TDLib and is not in
 
 ## Run the macOS prototype
 
-Requires macOS 14 or later, Xcode 26 / Swift 6.2, and Rust/Cargo. Node.js is used for chart-host tests. No third-party Swift packages or API key are needed. TradingView’s proprietary library is an optional, separately installed dependency; without it the app builds with chart setup guidance.
+Requires macOS 14 or later, Xcode 26 / Swift 6.2, Rust/Cargo, and Node.js 22.12+ with npm. Vela is bundled during the build. No third-party Swift packages, proprietary chart library or API key are needed.
 
 ```sh
 cd apps/macos
@@ -99,6 +99,18 @@ node --test Tests/ChartHost/chart-datafeed.test.cjs
 The script builds and locally signs `dist/tRig.app`. Sign in to Pump or Fomo through the app’s website view. Use **Continue with ChatGPT** in the assistant sidebar to connect an eligible ChatGPT plan.
 
 See the [macOS development guide](apps/macos/README.md) for setup, architecture, and current limitations.
+
+## Compare chart engines locally
+
+[`apps/chart-compare`](apps/chart-compare) is a small browser experiment comparing Vela with TradingView Advanced Charts on shared candle snapshots. It includes replay, a 10,000-bar synthetic fixture, and independent indicator and drawing tools.
+
+```sh
+cd apps/chart-compare
+npm ci
+npm run dev
+```
+
+Open `http://127.0.0.1:5174`. The comparison’s TradingView pane requires a separately installed authorized local library; the macOS app uses bundled Vela. See the [comparison guide](apps/chart-compare/README.md) for setup and test boundaries.
 
 ## Local app, explicit connections
 
