@@ -52,6 +52,10 @@ struct ChartPanelView: View {
         .foregroundStyle(
           status.phase == "error" || backend.error != nil ? Color.orange : Color.secondary)
         Spacer(minLength: 0)
+        Link("Charts by Vela", destination: URL(string: "https://velacharts.dev")!)
+          .foregroundStyle(.secondary)
+          .fixedSize()
+          .help("Vela charting library by LuxAlgo")
         if let fetched = status.fetchedAt {
           Text("Updated \(fetched.formatted(date: .omitted, time: .standard))")
             .foregroundStyle(.secondary)

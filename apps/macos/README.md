@@ -97,7 +97,7 @@ Review [OpenAI’s current integration eligibility](https://developers.openai.co
 
 The chart runs Vela 0.9.0 in WKWebView, using the same local Rust market-data service as native asset search. `script/build_and_run.sh` installs the pinned dependencies in `chart-host/`, bundles the chart locally, and copies the generated assets into the app. No proprietary library download or API key is required.
 
-Vela's Apache-2.0 license and NOTICE are included in `Contents/Resources/Chart/licenses/`, and its visible chart attribution is retained. No Pine Script addon is bundled. JavaScript and chart UI assets are served from the loopback helper, not a CDN.
+Vela's Apache-2.0 license and NOTICE are included in `Contents/Resources/Chart/licenses/`. A visible “Charts by Vela” link in the native chart status bar replaces the in-chart logo. Opening the chart host outside the native shell retains Vela’s default mark. No Pine Script addon is bundled. JavaScript and chart UI assets are served from the loopback helper, not a CDN.
 
 The host uses standard select controls for the supported intervals and chart styles, with Vela’s built-in indicator and drawing tools. Native asset search owns symbol selection. Chart preferences and drawings are currently scoped to the open chart; changing the selected asset, changing the app theme or reloading the chart recreates it. Background charts stop polling and catch up when resumed. The adapter validates asset identity and ordered OHLCV data before handing it to Vela.
 

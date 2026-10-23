@@ -1,4 +1,5 @@
 import { VelaWorkspace } from '@luxalgo/vela/workspace';
+import { registerRendererDefaults } from '@luxalgo/vela';
 import { createMarketFeed, resolutions } from './datafeed.mjs';
 
 const settings = new URLSearchParams(location.search);
@@ -34,6 +35,9 @@ window.chartHost = {
 document.addEventListener('visibilitychange', updateActivity);
 try {
   if (!asset.mint || !asset.pool) throw new Error('Choose an asset through native search.');
+  // The native chart status bar supplies the visible, linked attribution.
+  // Keep Vela's own mark when this host is opened without the native shell.
+  if (window.webkit?.messageHandlers?.chartStatus) registerRendererDefaults({ attribution: false });
   workspace = new VelaWorkspace('#chart', {
     layout: false, symbol: `gecko:${asset.ticker}`, timeframe: '1D', bars: 300,
     providers: { gecko: () => feed.provider }, live: true, theme, timezone: 'Etc/UTC',
