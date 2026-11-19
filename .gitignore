@@ -1,0 +1,6 @@
+/.env.relay
+.DS_Store
+/.build/
+/.swiftpm/
+/dist/
+/backend/trading-data/target/
