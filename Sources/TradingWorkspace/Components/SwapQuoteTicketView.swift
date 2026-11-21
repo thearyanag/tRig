@@ -3,20 +3,48 @@ import SwiftUI
 struct SwapQuoteTicketView: View {
   let asset: Asset
   @Binding var draft: TradeDraft
+  @Binding var limitDraft: LimitOrderDraft
+  @Binding var exitDraft: ExitOrderDraft
   var referencePrice: Double? = nil
   @State private var store = SwapQuoteStore()
   @State private var review: SwapQuote?
+  @State private var routeMode: ExecutionOrderType?
   @FocusState private var amountFocused: Bool
   private var input: SwapQuoteInput { SwapQuoteInput(asset: asset, draft: draft) }
 
   var body: some View {
+    VStack(spacing: 0) {
+      VStack(spacing: 8) {
+        sideTabs
+        orderMode
+      }.padding(12)
+      if exitDraft.isEnabled {
+        ExitOrderTicketView(
+          asset: asset, exits: $exitDraft, slippage: $draft.slippage,
+          referencePrice: referencePrice ?? asset.priceUsd)
+      } else if limitDraft.isEnabled {
+        LimitOrderTicketView(
+          asset: asset, trade: $draft, limit: $limitDraft,
+          referencePrice: referencePrice ?? asset.priceUsd)
+      } else {
+        if asset.isSolana { marketTicket } else { EVMMarketQuoteView(asset: asset, trade: $draft) }
+      }
+    }
+    .background(TerminalStyle.panel)
+    .onChange(of: draft.side) { _, side in
+      if limitDraft.isEnabled {
+        limitDraft.setPrice("")
+        limitDraft.preset(side == .buy ? -5 : 5, reference: referencePrice ?? asset.priceUsd)
+      }
+    }
+  }
+
+  private var marketTicket: some View {
     TimelineView(.periodic(from: .now, by: 1)) { context in
       let quote = store.visibleQuote(for: input)
       let fresh = quote?.isFresh(at: context.date) == true
       ScrollView {
         VStack(spacing: 8) {
-          sideTabs
-          orderMode
           SwapTokenAmountView(
             title: "From", asset: asset, usesUSDC: draft.side == .buy,
             amount: $draft.amountText, editable: true,
@@ -46,6 +74,9 @@ struct SwapQuoteTicketView: View {
             amountFocused: $amountFocused,
             selectToken: { changeSide($0 ? .sell : .buy) })
           slippage
+          Button("Cross-chain & advanced quotes…") { routeMode = .market }
+            .buttonStyle(.plain).font(AppTypography.caption).foregroundStyle(.blue)
+            .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 4)
           if asset.id == SwapQuoteInput.usdc {
             Text("Choose another asset to quote against USDC.")
               .font(AppTypography.callout).foregroundStyle(.secondary)
@@ -112,6 +143,11 @@ struct SwapQuoteTicketView: View {
     }
     .onDisappear { store.clear() }
     .sheet(item: $review) { SwapQuoteReviewView(quote: $0) }
+    .sheet(item: $routeMode) {
+      ExecutionQuoteView(
+        asset: asset, initialOrderType: $0, initialSide: draft.side, initialAmount: draft.amountText
+      )
+    }
   }
 
   private var sideTabs: some View {
@@ -139,27 +175,34 @@ struct SwapQuoteTicketView: View {
 
   private var orderMode: some View {
     HStack(spacing: 4) {
-      Text("Market").font(AppTypography.calloutMedium)
-        .frame(maxWidth: .infinity).frame(height: 28)
-        .background(
-          TerminalStyle.panel, in: RoundedRectangle(cornerRadius: TerminalStyle.controlRadius)
+      ForEach(["Market", "Limit", "TP/SL"], id: \.self) { mode in
+        let selected =
+          mode == "TP/SL"
+          ? exitDraft.isEnabled
+          : !exitDraft.isEnabled && (limitDraft.isEnabled == (mode == "Limit"))
+        Button {
+          store.clear()
+          if mode == "TP/SL" { draft.selectQuoteSide(.sell) }
+          limitDraft.setEnabled(
+            mode == "Limit", reference: referencePrice ?? asset.priceUsd, side: draft.side)
+          exitDraft.setEnabled(mode == "TP/SL", reference: referencePrice ?? asset.priceUsd)
+        } label: {
+          Text(mode).font(AppTypography.calloutMedium)
+            .frame(maxWidth: .infinity).frame(height: 28)
+        }
+        .buttonStyle(
+          TerminalControlStyle(
+            fill: selected ? TerminalStyle.panel : TerminalStyle.field,
+            foreground: selected ? .primary : .secondary,
+            border: selected ? .white.opacity(0.2) : TerminalStyle.border)
         )
-        .overlay(
-          RoundedRectangle(cornerRadius: TerminalStyle.controlRadius).strokeBorder(
-            .white.opacity(0.16))
-        )
-        .accessibilityLabel("Market swap quote")
-      Text("Limit").font(AppTypography.callout)
-        .foregroundStyle(.tertiary).frame(maxWidth: .infinity).frame(height: 28)
-        .background(
-          TerminalStyle.field.opacity(0.5),
-          in: RoundedRectangle(cornerRadius: TerminalStyle.controlRadius)
-        )
-        .overlay(
-          RoundedRectangle(cornerRadius: TerminalStyle.controlRadius).strokeBorder(
-            TerminalStyle.border)
-        )
-        .help("Limit orders are not available yet.").accessibilityLabel("Limit orders unavailable")
+        .accessibilityLabel(mode == "TP/SL" ? "Take profit and stop loss" : "\(mode) order")
+        .accessibilityAddTraits(selected ? .isSelected : [])
+        .disabled(mode != "Market" && (!asset.supportsConditions || asset.settlement == nil))
+        .help(
+          mode != "Market" && !asset.supportsConditions
+            ? "Conditional quotes are unavailable on this network." : "")
+      }
     }
   }
 
@@ -187,6 +230,9 @@ struct SwapQuoteTicketView: View {
   }
 
   private func changeSide(_ side: TradeSide) {
+    if side == .buy && exitDraft.isEnabled {
+      exitDraft.setEnabled(false, reference: referencePrice ?? asset.priceUsd)
+    }
     draft.selectQuoteSide(side)
     amountFocused = true
   }

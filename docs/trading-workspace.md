@@ -28,7 +28,7 @@ Optional flags: `--verify`, `--debug`, `--logs`, `--telemetry`.
 - `Sources/TradingWorkspace/Components`: reusable native UI components.
 - `Sources/TradingWorkspace/Views`: trading shell and component gallery.
 - `Sources/TradingWorkspace/Services`: Rust sidecar lifecycle and local discovery client.
-- `Sources/TradingWorkspace/Stores`: shared selection and persisted watchlist.
+- `Sources/TradingWorkspace/Stores`: shared selection, persisted watchlist and app-wide portfolio state.
 - `Sources/TradingWorkspace/Resources/Chart`: TradingView HTML/JavaScript host.
 - `backend/trading-data`: local Rust candle service and provider cache.
 - `vendor/tradingview/charting_library`: Advanced Charts v30.3.0 assets.
@@ -36,17 +36,20 @@ Optional flags: `--verify`, `--debug`, `--logs`, `--telemetry`.
 TradingView runs inside a WKWebView. The bundled Rust service discovers Solana
 assets, chooses a liquid active chart route automatically, and fetches keyless
 GeckoTerminal candles. Charts and the header use the selected asset's USD data.
-Pool routing is internal and has no user-facing selector.
+Pool routing is internal and has no user-facing selector. Provider names remain
+internal; the asset header and chart footer show asset identity and update status.
 
-The dark terminal layout uses a full-width 54-point title strip, a full-height
+The dark terminal layout uses a full-width 54-point title strip with its sidebar
+toggle at the top left beside Workspace, a full-height
 left pane with asset identity, context and watchlist, separate 76-point identity
 and 64-point market-stat rows, a dominant chart and a 280–320-point quote panel.
 Token artwork comes from discovery metadata; Backpack artwork is also bundled.
 24h volume refers to the selected chart source. High/low cells remain unavailable
 until their data integration is added. Positions, Orders and
 Activity share a compact bottom dock; its chevron collapses the dock to the tab
-strip. These tabs currently show empty states because wallet connection and
-execution are not available. Research and AI are outside this layout pass.
+strip. Positions shows the complete cached holdings across connected accounts,
+with the selected asset first and expandable source rows. Orders and Activity
+retain empty states because execution is not available. Research and AI are outside this layout pass.
 
 Use **Command-K** or the toolbar search button to search names/tickers or paste
 a Solana contract address. Watchlisted matches are available immediately; press
@@ -69,7 +72,16 @@ price/minimum/impact/fee summary. Token menus switch the USDC/selected-asset pai
 changing sides clears the input amount. Reversing a matching fresh quote carries
 its receive amount into the new input token; reversing without one clears it.
 USD captions use the displayed reference market price and are approximate.
-Market quotes are supported; the Limit label is unavailable.
+The main ticket keeps its Jupiter market quote path. **Cross-chain & advanced
+quotes…** opens the shared route composer for Jupiter, Relay and Definitive Flash;
+**Limit** changes the ticket in place and adds a draggable draft-price line to
+TradingView. Native price entry and chart dragging share the same draft; inline
+previews use the server's conditional quote route. **TP/SL** selects the Sell
+ticket's inline exit previews: separate target prices and token quantities, two
+draggable chart lines, and individual quote results. Each exit can be disabled.
+These are independent estimates, without linked orders or position reservation.
+Funding, signing and execution remain deferred. See [quote-providers.md](quote-providers.md) for access, capabilities,
+quote semantics and live validation.
 **Workspace → Component Gallery** (`Shift-Command-G`) retains the old sample
 ticket for component fixtures and includes a separate live Swap quotes tab.
 
@@ -101,8 +113,52 @@ was also exercised for Pumpfun. No trade or signing action was performed.
 
 These are unofficial website integrations and can change upstream. A failed or
 ambiguous read leaves the account disconnected. Connections do not enable swaps,
-import balances, publish posts, or attach profiles to research/AI. The terminal's
+publish posts, or attach profiles to research/AI. Portfolio reads use these saved sessions. The terminal's
 trading-wallet empty states are independent of these account connections.
+
+## Portfolio
+
+The top navigation opens a native Portfolio workspace using the existing Allo
+font and terminal theme. **All accounts** is the default; Pumpfun and Fomo filter
+the same refresh immediately. The sidebar retains the existing watchlist.
+
+The screen has a three-column summary, native portfolio value chart with
+24h/7d/30d/All periods, and a grouped holdings table. Search matches names,
+symbols, contracts and chains. Hide small balances excludes priced assets below
+$1; unknown values remain visible. Sort by value, symbol or P&L, expand source
+breakdowns, or double-click a supported Solana holding to open Markets.
+Usernames and wallet addresses remain confined to Settings.
+
+- Pumpfun's native reader uses its scoped app-local cookie with redirects
+  disabled. It reads the account summary, paginated open positions and value
+  history from the fixed Pump API. Fomo uses its own loaded authenticated GET
+  helper, supported-chain header, balances, equity history and P&L baseline.
+- Swift returns sanitized financial fields to the loopback Rust endpoint
+  `POST /api/portfolio/sync/complete`. Credentials and social/callout fields do not enter
+  Rust. Validated financial snapshots are persisted by Rust in local SQLite.
+- Rust preserves decimal quantities, groups by chain and mint, and retains
+  account lots. Shared wallet balances are counted once. When shared wallets
+  prevent safe combination of platform totals/history, All accounts shows a
+  clearly marked priced-holdings subtotal; select a platform for its history.
+- Platform totals can include non-spot exposure that is not expanded in the
+  holdings table. Data notices explain this, missing prices, incomplete
+  pagination and missing history/basis. Unknown values display a dash.
+- Period P&L uses provider profit/baselines, never an equity delta that could
+  confuse deposits with gains. Combined percentages are omitted without a
+  common denominator. Fomo unrealized P&L follows its tracked quantities.
+- Rust owns the SQLite repository, account revisions, refresh leases and a
+  60-second freshness/backoff policy. An app-wide coordinator checks for due work
+  while foregrounded; screen navigation uses the shared cache. Saved holdings
+  load before session restoration after a restart. Failed reads preserve the
+  previous successful data with notices; explicit disconnect removes its cache.
+- Current holdings are shared with Markets independently of Portfolio filters
+  and history periods. The native adapter retains authentication in WebKit.
+  See [portfolio-data-layer.md](portfolio-data-layer.md) for ownership, schema,
+  API contracts and validation evidence.
+
+These website endpoints are unofficial and may change. Pumpfun, Fomo and All accounts were verified live with the saved app sessions,
+including source breakdowns, search, sorting, small-balance filtering, refresh,
+and 24h/7d/All history.
 
 ## Read-only Jupiter quotes
 
@@ -145,10 +201,20 @@ trading-wallet empty states are independent of these account connections.
 ```sh
 swift test
 cargo test --manifest-path backend/trading-data/Cargo.toml --locked
-node --test Tests/ChartHost/chart-datafeed.test.cjs Tests/ConnectionHost/fomo-profile.test.cjs
+node --test Tests/ChartHost/*.test.cjs Tests/ConnectionHost/*.test.cjs
 ```
 
-Rust checks cover interval mapping, ranges, candle validation and history bounds.
+Rust checks cover interval mapping, ranges, candle validation, portfolio accounting,
+source isolation, exact quantities, shared-wallet deduplication and history bounds.
 Chart-host checks cover ordered refreshes, exclusive boundaries, errors and
-background/unsubscribe behaviour. No wallet credentials or execution backend
-are part of this integration.
+background/unsubscribe behaviour. No wallet signing or execution endpoint is part of this integration. Provider
+API keys are read only by the local Rust quote service from private configuration.
+
+## Multichain market terminal
+
+The header now includes available 24h change, rolling high/low, volume, market cap,
+FDV, liquidity and asset links. A collapsible Recent trades panel sits beside the
+chart. Native search and token selectors support Solana and provider-supported
+EVM networks with chain badges and separate quote/chart capabilities. See
+[market-data.md](market-data.md) for API contracts, identity, cache and freshness
+semantics. All order types remain quote previews.

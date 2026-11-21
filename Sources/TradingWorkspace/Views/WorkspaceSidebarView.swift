@@ -49,13 +49,19 @@ struct WorkspaceSidebarView: View {
         }
         .padding(.horizontal, 18).padding(.top, 12)
         List(selection: selection) {
-          ForEach(workspace.watchlist) { asset in
+          ForEach(workspace.watchlist, id: \.identity) { asset in
             HStack(spacing: 10) {
               AssetIconView(asset: asset, size: 28)
-              Text(asset.symbol).font(AppTypography.calloutMedium)
-              Text(asset.name).font(AppTypography.callout).foregroundStyle(.secondary).lineLimit(1)
+              VStack(alignment: .leading, spacing: 3) {
+                HStack {
+                  Text(asset.symbol).font(AppTypography.calloutMedium)
+                  Text(asset.name).font(AppTypography.callout).foregroundStyle(.secondary)
+                    .lineLimit(1)
+                }
+                Text(asset.network).font(AppTypography.caption).foregroundStyle(.secondary)
+              }
             }
-            .padding(.vertical, 6).tag(asset.id)
+            .padding(.vertical, 6).tag(asset.identity)
             .contextMenu { Button("Remove from watchlist") { workspace.toggleWatch(asset) } }
           }
         }
@@ -70,8 +76,12 @@ struct WorkspaceSidebarView: View {
           Text("Selected asset").font(AppTypography.bodySemibold)
           contextRow("Network", workspace.selectedAsset.network)
           contextRow("Pair", "\(workspace.selectedAsset.symbol) / USD")
-          contextRow("Market data", "GeckoTerminal")
-          contextRow("Swap quotes", "Jupiter")
+          contextRow(
+            "Market quotes",
+            workspace.selectedAsset.marketQuotes == false ? "Unavailable" : "Available")
+          contextRow(
+            "Limit / TP/SL",
+            workspace.selectedAsset.supportsConditions ? "Available" : "Unavailable")
           contextRow("Execution", "Unavailable")
         }
         .padding(18)

@@ -1,12 +1,15 @@
 pub mod discovery;
+pub mod execution;
+pub mod market;
 pub mod models;
+pub mod portfolio;
 pub mod quotes;
 
 use axum::{
     extract::{Query, State},
     http::StatusCode,
     response::{IntoResponse, Response},
-    routing::get,
+    routing::{get, post},
     Json, Router,
 };
 use models::*;
@@ -36,7 +39,11 @@ pub struct AppState {
     feed: Arc<Mutex<FeedState>>,
     gate: Arc<Mutex<Instant>>,
     discovery: Arc<Mutex<HashMap<String, discovery::CachedSearch>>>,
-    quotes: Arc<Mutex<quotes::QuoteState>>,
+    portfolio: Arc<portfolio::storage::Repository>,
+    execution: Arc<execution::service::Service>,
+    market: Arc<market::Cache>,
+    market_db: Arc<market::storage::Repository>,
+    upstream: Arc<Mutex<HashMap<String, (Instant, serde_json::Value)>>>,
 }
 struct FeedState {
     cache: HashMap<CacheKey, CacheEntry>,
@@ -46,8 +53,19 @@ struct CacheEntry {
     response: BarsResponse,
 }
 
-pub fn router(assets: std::path::PathBuf) -> Result<Router, reqwest::Error> {
+pub fn router(
+    assets: std::path::PathBuf,
+    database: &std::path::Path,
+    quote_config: execution::config::Config,
+) -> Result<Router, Box<dyn std::error::Error>> {
+    let portfolio = portfolio::storage::Repository::open(database)
+        .map_err(|_| std::io::Error::other("Portfolio database could not open"))?;
     let state = AppState {
+        portfolio: Arc::new(portfolio),
+        execution: execution::service::Service::new(quote_config)?,
+        market: Arc::new(market::Cache::default()),
+        market_db: Arc::new(market::storage::Repository::open(database)?),
+        upstream: Arc::new(Mutex::new(HashMap::new())),
         client: reqwest::Client::builder()
             .user_agent("TradingWorkspace/0.1")
             .connect_timeout(Duration::from_secs(10))
@@ -58,19 +76,34 @@ pub fn router(assets: std::path::PathBuf) -> Result<Router, reqwest::Error> {
         })),
         gate: Arc::new(Mutex::new(Instant::now())),
         discovery: Arc::new(Mutex::new(HashMap::new())),
-        quotes: Arc::new(Mutex::new(quotes::QuoteState::default())),
     };
     Ok(Router::new()
         .route(
             "/api/health",
             get(|| async {
-                Json(json!({"status":"ok", "pid":std::process::id(), "network":"solana"}))
+                Json(json!({"status":"ok", "pid":std::process::id(), "mode":"quotes-only"}))
             }),
         )
         .route("/api/chart/bars", get(bars))
         .route("/api/assets/search", get(discovery::search))
         .route("/api/assets/resolve", get(discovery::resolve))
+        .route("/api/markets/networks", get(market::networks::catalog))
+        .route("/api/markets/snapshot", get(market::data::snapshot))
+        .route("/api/markets/trades", get(market::data::trades))
         .route("/api/swap/quote", get(quotes::quote))
+        .route("/api/quotes/providers", get(execution::catalog))
+        .route(
+            "/api/quotes/quote",
+            post(execution::quote).layer(axum::extract::DefaultBodyLimit::max(16 * 1024)),
+        )
+        .route("/api/portfolio/cache", get(portfolio::api::cached))
+        .route("/api/portfolio/accounts", post(portfolio::api::accounts))
+        .route("/api/portfolio/sync", post(portfolio::api::claim))
+        .route(
+            "/api/portfolio/sync/complete",
+            post(portfolio::api::complete)
+                .layer(axum::extract::DefaultBodyLimit::max(8 * 1024 * 1024)),
+        )
         .fallback_service(ServeDir::new(assets).append_index_html_on_directories(true))
         .with_state(state))
 }
@@ -121,15 +154,17 @@ pub fn validated_key(query: BarsQuery) -> Result<CacheKey, ApiError> {
     let pool = query
         .pool
         .ok_or_else(|| ApiError(StatusCode::BAD_REQUEST, "Asset identity is required".into()))?;
-    if !discovery::is_address(&mint) || !discovery::is_address(&pool) {
+    let chain = query.chain.unwrap_or_else(|| "solana".into());
+    if !market::networks::address(&chain, &mint) || !market::networks::pool_address(&chain, &pool) {
         return Err(ApiError(
             StatusCode::BAD_REQUEST,
             "Invalid asset identity".into(),
         ));
     }
     Ok(CacheKey {
-        mint,
-        pool,
+        mint: market::networks::canonical(&chain, &mint),
+        pool: market::networks::canonical(&chain, &pool),
+        chain,
         resolution: query.resolution,
         before: query.before,
         limit,
@@ -177,6 +212,7 @@ async fn bars(
     let floor = history_floor(now());
     if key.before.is_some_and(|before| before <= floor) {
         return Ok(Json(BarsResponse {
+            chain: key.chain.clone(),
             bars: Vec::new(),
             fetched_at: now(),
             cached: true,
@@ -196,9 +232,16 @@ async fn bars(
         response.cached = true;
         return Ok(Json(response));
     }
+    let network = market::networks::find(&state, &key.chain).await?;
+    let gecko = network.gecko_id.ok_or_else(|| {
+        ApiError(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "Charts are unavailable on this network. Quotes may still be available.".into(),
+        )
+    })?;
     let (timeframe, aggregate) = resolution(&key.resolution).expect("validated resolution");
     let mut url = reqwest::Url::parse(&format!(
-        "https://api.geckoterminal.com/api/v2/networks/solana/pools/{}/ohlcv/{timeframe}",
+        "https://api.geckoterminal.com/api/v2/networks/{gecko}/pools/{}/ohlcv/{timeframe}",
         key.pool
     ))
     .expect("fixed provider URL");
@@ -216,6 +259,7 @@ async fn bars(
     let body: ProviderResponse = serde_json::from_value(provider_json(&state, url).await?)
         .map_err(|_| ApiError(StatusCode::BAD_GATEWAY, "Unexpected candle response".into()))?;
     let response = BarsResponse {
+        chain: key.chain.clone(),
         bars: normalize(body.data.attributes.ohlcv_list)?
             .into_iter()
             .filter(|bar| bar.time >= (floor as i64) * 1000)
@@ -248,21 +292,41 @@ async fn bars(
 }
 
 async fn provider_json(state: &AppState, url: reqwest::Url) -> Result<serde_json::Value, ApiError> {
+    let key = url.to_string();
+    if let Some((at, value)) = state
+        .upstream
+        .lock()
+        .await
+        .get(&key)
+        .filter(|(at, _)| at.elapsed() < Duration::from_secs(60))
+    {
+        let _ = at;
+        return Ok(value.clone());
+    }
     let mut gate = state.gate.lock().await;
+    if let Some((_, value)) = state
+        .upstream
+        .lock()
+        .await
+        .get(&key)
+        .filter(|(at, _)| at.elapsed() < Duration::from_secs(60))
+    {
+        return Ok(value.clone());
+    }
     sleep_until(*gate).await;
     *gate = Instant::now() + REQUEST_SPACING;
     let upstream = state.client.get(url).send().await.map_err(|error| {
         eprintln!("GeckoTerminal request failed: {error}");
         ApiError(
             StatusCode::BAD_GATEWAY,
-            "Could not reach GeckoTerminal. Try again shortly.".into(),
+            "Market data is unavailable. Try again shortly.".into(),
         )
     })?;
     if upstream.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
         *gate = Instant::now() + Duration::from_secs(60);
         return Err(ApiError(
             StatusCode::TOO_MANY_REQUESTS,
-            "GeckoTerminal rate limit reached. Retry in one minute.".into(),
+            "Market data is busy. Try again in one minute.".into(),
         ));
     }
     if !upstream.status().is_success() {
@@ -273,16 +337,24 @@ async fn provider_json(state: &AppState, url: reqwest::Url) -> Result<serde_json
             } else {
                 StatusCode::BAD_GATEWAY
             },
-            "GeckoTerminal could not return market data.".into(),
+            "Market data is temporarily unavailable.".into(),
         ));
     }
     let body: serde_json::Value = upstream.json().await.map_err(|error| {
         eprintln!("GeckoTerminal response could not be parsed: {error}");
         ApiError(
             StatusCode::BAD_GATEWAY,
-            "GeckoTerminal returned an unexpected response.".into(),
+            "Market data could not be loaded. Try again.".into(),
         )
     })?;
+    let mut cache = state.upstream.lock().await;
+    if cache.len() >= 128 {
+        cache.retain(|_, (at, _)| at.elapsed() < Duration::from_secs(60));
+    }
+    if cache.len() >= 128 {
+        cache.clear();
+    }
+    cache.insert(key, (Instant::now(), body.clone()));
     Ok(body)
 }
 
@@ -333,6 +405,7 @@ mod tests {
     fn cache_keys_are_scoped_to_asset_identity() {
         let make = |mint: &str| {
             validated_key(BarsQuery {
+                chain: None,
                 mint: Some(mint.into()),
                 pool: Some(BP_POOL.into()),
                 resolution: "1D".into(),

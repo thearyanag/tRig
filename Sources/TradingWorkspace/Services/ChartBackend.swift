@@ -2,7 +2,7 @@ import Foundation
 import OSLog
 import Observation
 
-/// One app-owned Rust process, shared by chart windows. No provider requests in Swift.
+/// One app-owned Rust process, shared by chart windows and portfolio state.
 @MainActor @Observable
 final class ChartBackend {
   static let shared = ChartBackend()
@@ -35,12 +35,27 @@ final class ChartBackend {
       error = "The chart service is missing. Rebuild the app."
       return
     }
+    guard
+      let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)
+        .first
+    else {
+      error = "Application Support is unavailable. The data service could not start."
+      return
+    }
+    let database = support.appendingPathComponent("com.aryan.TradingWorkspace", isDirectory: true)
+      .appendingPathComponent("portfolio.sqlite")
+    let quoteConfig = support.appendingPathComponent(
+      "com.aryan.TradingWorkspace", isDirectory: true
+    )
+    .appendingPathComponent("quotes.env")
     let child = Process()
     let stdout = Pipe()
     let stderr = Pipe()
     child.executableURL = binary
     child.arguments = [
-      "--assets", assets.path, "--parent-pid", String(ProcessInfo.processInfo.processIdentifier),
+      "--assets", assets.path, "--database", database.path, "--quote-config", quoteConfig.path,
+      "--parent-pid",
+      String(ProcessInfo.processInfo.processIdentifier),
     ]
     child.standardOutput = stdout
     child.standardError = stderr

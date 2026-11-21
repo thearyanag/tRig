@@ -1,4 +1,4 @@
-use crate::{now, provider_json, ApiError, AppState};
+use crate::{models::BarsQuery, now, provider_json, ApiError, AppState};
 use axum::{
     extract::{Query, State},
     http::StatusCode,
@@ -8,6 +8,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{collections::HashMap, time::Duration};
 use tokio::time::Instant;
+
+pub(crate) const MARKET_ROUTE_VERSION: u8 = 2;
+const ESTABLISHED_MARKET_AGE: Duration = Duration::from_secs(7 * 86400);
+// Matches the initial daily chart request, so validation warms that cache.
+const DAILY_HISTORY_LIMIT: usize = 300;
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -23,8 +28,40 @@ pub struct Asset {
     pub image_url: Option<String>,
     #[serde(rename = "volume24h")]
     pub volume_24h: Option<f64>,
+    #[serde(default = "solana")]
+    pub chain_id: String,
+    #[serde(default)]
+    pub market_network: Option<String>,
+    #[serde(default)]
+    pub explorer_url: Option<String>,
+    #[serde(default)]
+    pub change24h: Option<f64>,
+    #[serde(default)]
+    pub liquidity_usd: Option<f64>,
+    #[serde(default)]
+    pub market_cap_usd: Option<f64>,
+    #[serde(default)]
+    pub fdv_usd: Option<f64>,
+    #[serde(default)]
+    pub quote_token: Option<crate::market::networks::Currency>,
+    #[serde(default)]
+    pub market_quotes: bool,
+    #[serde(default)]
+    pub conditional_quotes: bool,
+    #[serde(default)]
+    pub market_resolved: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub market_route_version: Option<u8>,
 }
-#[derive(Clone, Serialize)]
+impl Asset {
+    pub(crate) fn has_current_market_route(&self) -> bool {
+        self.market_route_version == Some(MARKET_ROUTE_VERSION)
+    }
+}
+fn solana() -> String {
+    "solana".into()
+}
+#[derive(Clone, Deserialize, Serialize)]
 pub struct AssetsResponse {
     pub assets: Vec<Asset>,
     pub fetched_at: u64,
@@ -36,10 +73,12 @@ pub struct CachedSearch {
 #[derive(Deserialize)]
 pub struct SearchQuery {
     pub q: String,
+    pub chain: Option<String>,
 }
 #[derive(Deserialize)]
 pub struct ResolveQuery {
     pub mint: String,
+    pub chain: Option<String>,
 }
 
 pub fn is_address(address: &str) -> bool {
@@ -53,45 +92,124 @@ pub async fn search(
     State(state): State<AppState>,
     Query(query): Query<SearchQuery>,
 ) -> Result<Json<AssetsResponse>, ApiError> {
-    discover(&state, query.q.trim(), false).await.map(Json)
+    let term = query.q.trim();
+    let scope = query.chain.as_deref().unwrap_or("all");
+    if !term.is_empty() && term.len() <= 320 {
+        if let Some((saved, at)) = state.market_db.search(scope, term, now()) {
+            if now().saturating_sub(at) >= 60 {
+                schedule_search_refresh(&state, scope, term).await;
+            }
+            return Ok(Json(saved));
+        }
+    }
+    if is_address(term) || crate::market::networks::address("eip155:1", term) {
+        let (known, at) = state.market_db.address_matches(scope, term, now());
+        if !known.is_empty() {
+            schedule_search_refresh(&state, scope, term).await;
+            return Ok(Json(AssetsResponse {
+                assets: known,
+                fetched_at: at,
+            }));
+        }
+    }
+    discover(&state, term, false, query.chain.as_deref())
+        .await
+        .map(Json)
 }
+async fn schedule_search_refresh(state: &AppState, scope: &str, term: &str) {
+    let key = format!("{scope}:{term}");
+    if state
+        .market
+        .pending_searches
+        .lock()
+        .await
+        .insert(key.clone())
+    {
+        let state = state.clone();
+        let scope = scope.to_owned();
+        let term = term.to_owned();
+        tokio::spawn(async move {
+            let _ = discover(&state, &term, false, Some(&scope)).await;
+            state.market.pending_searches.lock().await.remove(&key);
+        });
+    }
+}
+
 pub async fn resolve(
     State(state): State<AppState>,
     Query(query): Query<ResolveQuery>,
 ) -> Result<Json<Asset>, ApiError> {
-    if !is_address(&query.mint) {
+    let chain = query.chain.as_deref().unwrap_or("solana");
+    if !crate::market::networks::address(chain, &query.mint) {
         return Err(ApiError(
             StatusCode::BAD_REQUEST,
-            "Invalid Solana address".into(),
+            "The contract address does not match its network.".into(),
         ));
     }
-    let result = discover(&state, &query.mint, true).await?;
-    result
+    if let Some(saved) = state.market_db.asset(chain, &query.mint, now(), 300) {
+        if saved.has_current_market_route()
+            && saved.market_resolved
+            && (chain == "solana" || saved.quote_token.is_some())
+        {
+            return Ok(Json(saved));
+        }
+    }
+    let result = discover(&state, &query.mint, true, Some(chain)).await?;
+    let mut asset = result
         .assets
         .into_iter()
-        .find(|asset| asset.id == query.mint)
-        .map(Json)
+        .find(|asset| asset.id == crate::market::networks::canonical(chain, &query.mint))
         .ok_or_else(|| {
             ApiError(
                 StatusCode::NOT_FOUND,
                 "No supported market was found for this asset.".into(),
             )
-        })
+        })?;
+    if chain != "solana" {
+        let network = crate::market::networks::find(&state, chain).await?;
+        asset.quote_token = crate::market::networks::quote_currency(&state, chain)
+            .await
+            .filter(|q| q.address != asset.id)
+            .or_else(|| network.native_token.filter(|q| q.address != asset.id));
+    }
+    asset.market_resolved = true;
+    asset.market_route_version = Some(MARKET_ROUTE_VERSION);
+    let _ = state.market_db.save_asset(&asset, now());
+    Ok(Json(asset))
 }
 
-async fn discover(state: &AppState, query: &str, exact: bool) -> Result<AssetsResponse, ApiError> {
+async fn discover(
+    state: &AppState,
+    query: &str,
+    exact: bool,
+    chain: Option<&str>,
+) -> Result<AssetsResponse, ApiError> {
     if query.is_empty() || query.chars().count() > 80 {
         return Err(ApiError(
             StatusCode::BAD_REQUEST,
-            "Enter an asset name, ticker or Solana address.".into(),
+            "Enter an asset name, ticker or contract address.".into(),
         ));
     }
-    let address = is_address(query);
-    let key = if address {
+    let selected = chain.filter(|c| *c != "all");
+    let networks = if selected == Some("solana") {
+        vec![crate::market::networks::find(state, "solana").await?]
+    } else {
+        crate::market::networks::list(state).await?
+    };
+    if selected.is_some_and(|c| !networks.iter().any(|n| n.id == c)) {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            "Unsupported network.".into(),
+        ));
+    }
+    let address = is_address(query) || query.starts_with("0x");
+    let term = if address {
         query.to_string()
     } else {
         query.to_lowercase()
     };
+    // A search result is ranked, but exact resolution also checks candle history.
+    let key = format!("{exact}:{}:{term}", selected.unwrap_or("all"));
     let mut cache = state.discovery.lock().await;
     if let Some(entry) = cache
         .get(&key)
@@ -99,9 +217,14 @@ async fn discover(state: &AppState, query: &str, exact: bool) -> Result<AssetsRe
     {
         return Ok(entry.response.clone());
     }
-    let mut url = if address {
+    let gecko = selected
+        .and_then(|c| networks.iter().find(|n| n.id == c))
+        .and_then(|n| n.gecko_id.as_deref())
+        .or_else(|| (selected.is_none() && is_address(query)).then_some("solana"));
+    let mut url = if address && gecko.is_some() {
         reqwest::Url::parse(&format!(
-            "https://api.geckoterminal.com/api/v2/networks/solana/tokens/{query}/pools"
+            "https://api.geckoterminal.com/api/v2/networks/{}/tokens/{query}/pools",
+            gecko.unwrap()
         ))
     } else {
         reqwest::Url::parse("https://api.geckoterminal.com/api/v2/search/pools")
@@ -110,19 +233,130 @@ async fn discover(state: &AppState, query: &str, exact: bool) -> Result<AssetsRe
     {
         let mut params = url.query_pairs_mut();
         params.append_pair("include", "base_token,quote_token,dex");
-        if !address {
+        if !address || gecko.is_none() {
             params.append_pair("query", query);
-            params.append_pair("network", "solana");
+            if let Some(gecko) = gecko {
+                params.append_pair("network", gecko);
+            }
         }
     }
-    let body = match provider_json(state, url).await {
+    let should_fetch = !(address && gecko.is_none() && selected.is_some());
+    let body = match if should_fetch {
+        provider_json(state, url).await
+    } else {
+        Ok(serde_json::json!({"data":[],"included":[]}))
+    } {
         Ok(body) => body,
         Err(error) if address && error.0 == StatusCode::NOT_FOUND => {
             serde_json::json!({"data":[],"included":[]})
         }
-        Err(error) => return Err(error),
+        Err(error) if exact || selected == Some("solana") => return Err(error),
+        Err(_) => serde_json::json!({"data":[],"included":[]}),
     };
-    let assets = parse_assets(&body, query, address || exact)?;
+    let mut ranked = rank_assets(&body, query, address || exact, &networks)?;
+    // Reuse verified discovery resources for stats and trades without refetching
+    // the same market immediately after the trader opens a search result.
+    if let Some(pools) = body["data"].as_array() {
+        let mut raw = state.upstream.lock().await;
+        for pool in pools.iter().take(20) {
+            let Some(id) = pool["id"].as_str() else {
+                continue;
+            };
+            let Some(address) = pool["attributes"]["address"].as_str() else {
+                continue;
+            };
+            let Some(network) = networks.iter().find(|n| {
+                n.gecko_id
+                    .as_ref()
+                    .is_some_and(|g| id == format!("{g}_{address}"))
+            }) else {
+                continue;
+            };
+            if !crate::market::networks::pool_address(&network.id, address) {
+                continue;
+            }
+            let url=crate::execution::service::url(&format!("https://api.geckoterminal.com/api/v2/networks/{}/pools/{address}?include=base_token,quote_token",network.gecko_id.as_deref().unwrap_or("")));
+            if raw.len() < 128 {
+                raw.insert(
+                    url.to_string(),
+                    (
+                        Instant::now(),
+                        serde_json::json!({"data":pool,"included":body["included"]}),
+                    ),
+                );
+            }
+        }
+    }
+    if let (true, Some((primary, Some(alternate)))) = (exact, ranked.first_mut()) {
+        if let Some(count @ 0..=1) = daily_candle_count(state, primary).await {
+            if daily_candle_count(state, alternate)
+                .await
+                .is_some_and(|other| other > count)
+            {
+                std::mem::swap(primary, alternate);
+            }
+        }
+    }
+    let mut assets: Vec<_> = ranked.into_iter().map(|(asset, _)| asset).collect();
+    if selected != Some("solana") && (!exact || assets.is_empty()) {
+        match crate::market::networks::currencies(state, selected, query).await {
+            Ok(rows) => {
+                for token in rows.as_array().into_iter().flatten() {
+                    let Some(id) = token["chainId"].as_u64() else {
+                        continue;
+                    };
+                    let chain = format!("eip155:{id}");
+                    let Some(network) = networks
+                        .iter()
+                        .find(|n| n.id == chain && selected.is_none_or(|s| s == chain))
+                    else {
+                        continue;
+                    };
+                    let Some(c) = crate::market::networks::currency(token, &chain) else {
+                        continue;
+                    };
+                    if exact && c.address != crate::market::networks::canonical(&chain, query) {
+                        continue;
+                    }
+                    if assets
+                        .iter()
+                        .any(|a| a.chain_id == chain && a.id == c.address)
+                    {
+                        continue;
+                    }
+                    assets.push(Asset {
+                        id: c.address,
+                        name: c.name,
+                        symbol: c.symbol,
+                        network: network.name.clone(),
+                        pool: String::new(),
+                        decimals: c.decimals.map(u32::from),
+                        price_usd: None,
+                        image_url: c.image_url,
+                        volume_24h: None,
+                        chain_id: chain,
+                        market_network: network.gecko_id.clone(),
+                        explorer_url: network.explorer_url.clone(),
+                        change24h: None,
+                        liquidity_usd: None,
+                        market_cap_usd: None,
+                        fdv_usd: None,
+                        quote_token: None,
+                        market_quotes: network.market_quotes,
+                        conditional_quotes: network.conditional_quotes,
+                        market_resolved: false,
+                        market_route_version: None,
+                    });
+                }
+            }
+            Err(e) if assets.is_empty() => return Err(e),
+            Err(_) => {}
+        }
+    }
+    if let Some(chain) = selected {
+        assets.retain(|a| a.chain_id == chain);
+    }
+    assets.truncate(40);
     let response = AssetsResponse {
         assets,
         fetched_at: now(),
@@ -133,6 +367,9 @@ async fn discover(state: &AppState, query: &str, exact: bool) -> Result<AssetsRe
     if cache.len() >= 128 {
         cache.clear();
     }
+    let _ = state
+        .market_db
+        .save_search(selected.unwrap_or("all"), query, &response);
     cache.insert(
         key,
         CachedSearch {
@@ -143,7 +380,24 @@ async fn discover(state: &AppState, query: &str, exact: bool) -> Result<AssetsRe
     Ok(response)
 }
 
-fn number(value: Option<&Value>) -> Option<f64> {
+async fn daily_candle_count(state: &AppState, asset: &Asset) -> Option<usize> {
+    crate::bars(
+        State(state.clone()),
+        Query(BarsQuery {
+            chain: Some(asset.chain_id.clone()),
+            mint: Some(asset.id.clone()),
+            pool: Some(asset.pool.clone()),
+            resolution: "1D".into(),
+            before: None,
+            limit: Some(DAILY_HISTORY_LIMIT),
+        }),
+    )
+    .await
+    .ok()
+    .map(|response| response.0.bars.len())
+}
+
+pub fn number(value: Option<&Value>) -> Option<f64> {
     let value = value?;
     let n = value.as_f64().or_else(|| value.as_str()?.parse().ok())?;
     (n.is_finite() && n >= 0.0).then_some(n)
@@ -167,9 +421,77 @@ fn search_quality(asset: &Asset, term: &str) -> u8 {
     }
 }
 
-/// Resolve both sides, deduplicate by mint, and choose the most liquid active route.
+/// Resolve both sides and choose an active market with established history.
 /// Pool routing stays internal; token identity never comes from a pool's display name.
 pub fn parse_assets(body: &Value, query: &str, exact: bool) -> Result<Vec<Asset>, ApiError> {
+    parse_assets_on(
+        body,
+        query,
+        exact,
+        &[crate::market::networks::Network {
+            id: "solana".into(),
+            name: "Solana".into(),
+            vm: "svm".into(),
+            gecko_id: Some("solana".into()),
+            explorer_url: Some("https://solscan.io".into()),
+            market_quotes: true,
+            conditional_quotes: true,
+            native_token: None,
+        }],
+    )
+}
+pub fn parse_assets_on(
+    body: &Value,
+    query: &str,
+    exact: bool,
+    networks: &[crate::market::networks::Network],
+) -> Result<Vec<Asset>, ApiError> {
+    Ok(rank_assets(body, query, exact, networks)?
+        .into_iter()
+        .map(|(asset, _)| asset)
+        .collect())
+}
+
+struct MarketCandidate {
+    asset: Asset,
+    history: HistoryCoverage,
+    volume: f64,
+    liquidity: f64,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum HistoryCoverage {
+    New,
+    Established,
+    FullWindow,
+}
+
+fn history_coverage(created_at: Option<&str>, at: u64) -> HistoryCoverage {
+    let created_at = created_at
+        .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
+        .and_then(|value| u64::try_from(value.timestamp()).ok());
+    if created_at.is_some_and(|created_at| created_at <= crate::history_floor(at)) {
+        HistoryCoverage::FullWindow
+    } else if created_at
+        .is_some_and(|created_at| created_at <= at.saturating_sub(ESTABLISHED_MARKET_AGE.as_secs()))
+    {
+        HistoryCoverage::Established
+    } else {
+        HistoryCoverage::New
+    }
+}
+impl MarketCandidate {
+    fn active(&self) -> bool {
+        self.volume > 0.0
+    }
+}
+
+fn rank_assets(
+    body: &Value,
+    query: &str,
+    exact: bool,
+    networks: &[crate::market::networks::Network],
+) -> Result<Vec<(Asset, Option<Asset>)>, ApiError> {
     let pools = body.get("data").and_then(Value::as_array).ok_or_else(|| {
         ApiError(
             StatusCode::BAD_GATEWAY,
@@ -187,15 +509,13 @@ pub fn parse_assets(body: &Value, query: &str, exact: bool) -> Result<Vec<Asset>
         .filter_map(|item| Some((item["id"].as_str()?, item.get("attributes")?)))
         .collect();
     let term = query.to_lowercase();
-    let mut best: HashMap<String, (Asset, bool, f64, f64)> = HashMap::new();
+    let mut candidates: HashMap<(String, String), Vec<MarketCandidate>> = HashMap::new();
+    let at = now();
     for pool in pools {
         let Some(attrs) = pool.get("attributes") else {
             continue;
         };
-        let Some(pool_address) = attrs["address"]
-            .as_str()
-            .filter(|address| is_address(address))
-        else {
+        let Some(pool_address) = attrs["address"].as_str() else {
             continue;
         };
         let reserve = number(attrs.get("reserve_in_usd")).unwrap_or(0.0);
@@ -203,12 +523,20 @@ pub fn parse_assets(body: &Value, query: &str, exact: bool) -> Result<Vec<Asset>
             continue;
         }
         let volume = number(attrs.get("volume_usd").and_then(|v| v.get("h24"))).unwrap_or(0.0);
+        let history = history_coverage(attrs["pool_created_at"].as_str(), at);
         for side in ["base", "quote"] {
             let relation = format!("{side}_token");
             let Some(token_id) = pool["relationships"][&relation]["data"]["id"].as_str() else {
                 continue;
             };
-            if !token_id.starts_with("solana_") {
+            let Some(network) = networks.iter().find(|n| {
+                n.gecko_id
+                    .as_ref()
+                    .is_some_and(|g| token_id.starts_with(&format!("{g}_")))
+            }) else {
+                continue;
+            };
+            if !crate::market::networks::pool_address(&network.id, pool_address) {
                 continue;
             }
             let Some(token) = tokens.get(token_id) else {
@@ -216,11 +544,15 @@ pub fn parse_assets(body: &Value, query: &str, exact: bool) -> Result<Vec<Asset>
             };
             let Some(id) = token["address"]
                 .as_str()
-                .filter(|address| is_address(address))
+                .filter(|address| crate::market::networks::address(&network.id, address))
             else {
                 continue;
             };
-            if token_id.strip_prefix("solana_") != Some(id) {
+            if token_id
+                .strip_prefix(&format!("{}_", network.gecko_id.as_deref().unwrap_or("")))
+                .map(|v| crate::market::networks::canonical(&network.id, v))
+                != Some(crate::market::networks::canonical(&network.id, id))
+            {
                 continue;
             }
             let name = token["name"].as_str().unwrap_or("").trim();
@@ -229,7 +561,8 @@ pub fn parse_assets(body: &Value, query: &str, exact: bool) -> Result<Vec<Asset>
                 continue;
             }
             let matches = if exact {
-                id == query
+                crate::market::networks::canonical(&network.id, id)
+                    == crate::market::networks::canonical(&network.id, query)
             } else {
                 name.to_lowercase().contains(&term)
                     || symbol.to_lowercase().contains(&term)
@@ -240,10 +573,10 @@ pub fn parse_assets(body: &Value, query: &str, exact: bool) -> Result<Vec<Asset>
             }
             let price_key = format!("{side}_token_price_usd");
             let asset = Asset {
-                id: id.into(),
+                id: crate::market::networks::canonical(&network.id, id),
                 name: name.into(),
                 symbol: symbol.into(),
-                network: "Solana".into(),
+                network: network.name.clone(),
                 pool: pool_address.into(),
                 decimals: token["decimals"]
                     .as_u64()
@@ -255,27 +588,77 @@ pub fn parse_assets(body: &Value, query: &str, exact: bool) -> Result<Vec<Asset>
                     .filter(|url| url.starts_with("https://"))
                     .map(str::to_owned),
                 volume_24h: number(attrs.get("volume_usd").and_then(|v| v.get("h24"))),
+                chain_id: network.id.clone(),
+                market_network: network.gecko_id.clone(),
+                explorer_url: network.explorer_url.clone(),
+                change24h: if side == "base" {
+                    attrs["price_change_percentage"]["h24"]
+                        .as_str()
+                        .and_then(|s| s.parse::<f64>().ok())
+                        .filter(|n| n.is_finite())
+                } else {
+                    None
+                },
+                liquidity_usd: Some(reserve),
+                market_cap_usd: if side == "base" {
+                    number(attrs.get("market_cap_usd"))
+                } else {
+                    None
+                },
+                fdv_usd: if side == "base" {
+                    number(attrs.get("fdv_usd"))
+                } else {
+                    None
+                },
+                quote_token: None,
+                market_quotes: network.market_quotes,
+                conditional_quotes: network.conditional_quotes,
+                market_resolved: true,
+                market_route_version: None,
             };
-            let active = volume > 0.0;
-            let replace = best
-                .get(id)
-                .is_none_or(|(_, old_active, old_reserve, old_volume)| {
-                    (active, reserve, volume) > (*old_active, *old_reserve, *old_volume)
+            let identity = (network.id.clone(), asset.id.clone());
+            candidates
+                .entry(identity)
+                .or_default()
+                .push(MarketCandidate {
+                    asset,
+                    history,
+                    volume,
+                    liquidity: reserve,
                 });
-            if replace {
-                best.insert(id.into(), (asset, active, reserve, volume));
-            }
         }
     }
-    let mut ranked: Vec<_> = best.into_values().collect();
-    ranked.sort_by(|a, b| {
-        search_quality(&b.0, &term)
-            .cmp(&search_quality(&a.0, &term))
-            .then_with(|| b.1.cmp(&a.1))
-            .then_with(|| b.2.total_cmp(&a.2))
-            .then_with(|| a.0.id.cmp(&b.0.id))
+    let mut ranked: Vec<_> = candidates
+        .into_values()
+        .filter_map(|mut markets| {
+            markets.sort_by(|a, b| {
+                b.active()
+                    .cmp(&a.active())
+                    .then_with(|| b.history.cmp(&a.history))
+                    .then_with(|| b.volume.total_cmp(&a.volume))
+                    .then_with(|| b.liquidity.total_cmp(&a.liquidity))
+                    .then_with(|| a.asset.pool.cmp(&b.asset.pool))
+            });
+            let mut markets = markets.into_iter();
+            let primary = markets.next()?;
+            let alternate =
+                markets.find(|market| market.active() && market.asset.pool != primary.asset.pool);
+            Some((primary, alternate.map(|market| market.asset)))
+        })
+        .collect();
+    ranked.sort_by(|(a, _), (b, _)| {
+        search_quality(&b.asset, &term)
+            .cmp(&search_quality(&a.asset, &term))
+            .then_with(|| b.active().cmp(&a.active()))
+            .then_with(|| b.liquidity.total_cmp(&a.liquidity))
+            .then_with(|| a.asset.id.cmp(&b.asset.id))
+            .then_with(|| a.asset.chain_id.cmp(&b.asset.chain_id))
     });
-    Ok(ranked.into_iter().take(20).map(|value| value.0).collect())
+    Ok(ranked
+        .into_iter()
+        .take(20)
+        .map(|(primary, alternate)| (primary.asset, alternate))
+        .collect())
 }
 
 #[cfg(test)]
@@ -302,6 +685,28 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
+    }
+    #[test]
+    fn established_active_market_beats_new_liquidity_and_volume_outlier() {
+        let mut body = document();
+        body["data"][0]["attributes"]["pool_created_at"] =
+            json!(chrono::DateTime::from_timestamp(now() as i64, 0)
+                .unwrap()
+                .to_rfc3339());
+        body["data"][0]["attributes"]["volume_usd"]["h24"] = json!("100000");
+        body["data"][1]["attributes"]["pool_created_at"] = json!("2024-01-01T00:00:00Z");
+        assert_eq!(parse_assets(&body, BP_MINT, true).unwrap()[0].pool, BP_POOL);
+        body["data"][0]["attributes"]["pool_created_at"] = json!(chrono::DateTime::from_timestamp(
+            (now() - 30 * 86400) as i64,
+            0
+        )
+        .unwrap()
+        .to_rfc3339());
+        assert_eq!(parse_assets(&body, BP_MINT, true).unwrap()[0].pool, BP_POOL);
+        body["data"][1]["attributes"]["volume_usd"]["h24"] = json!("0");
+        assert_eq!(parse_assets(&body, BP_MINT, true).unwrap()[0].pool, SOL);
+        body["data"].as_array_mut().unwrap().truncate(1);
+        assert_eq!(parse_assets(&body, BP_MINT, true).unwrap()[0].pool, SOL);
     }
     #[test]
     fn known_identity_wins_over_duplicate_tickers_and_aliases() {
@@ -350,5 +755,45 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
+    }
+    #[test]
+    fn evm_results_do_not_merge_the_same_contract_across_networks() {
+        let address = "0x1111111111111111111111111111111111111111";
+        let quote = "0x2222222222222222222222222222222222222222";
+        let pool = "0x3333333333333333333333333333333333333333";
+        let mut data = vec![];
+        let mut included = vec![];
+        let mut networks = vec![];
+        for (id, gecko, name) in [
+            ("eip155:1", "eth", "Ethereum"),
+            ("eip155:8453", "base", "Base"),
+        ] {
+            networks.push(crate::market::networks::Network {
+                id: id.into(),
+                name: name.into(),
+                vm: "evm".into(),
+                gecko_id: Some(gecko.into()),
+                explorer_url: None,
+                market_quotes: true,
+                conditional_quotes: false,
+                native_token: None,
+            });
+            data.push(json!({"attributes":{"address":pool,"reserve_in_usd":"100","volume_usd":{"h24":"10"},"base_token_price_usd":"2","quote_token_price_usd":"1","market_cap_usd":null,"fdv_usd":"1000","price_change_percentage":{"h24":"-5"}},"relationships":{"base_token":{"data":{"id":format!("{gecko}_{address}")}},"quote_token":{"data":{"id":format!("{gecko}_{quote}")}}}}));
+            for (a, s) in [(address, "TOK"), (quote, "USD")] {
+                included.push(json!({"type":"token","id":format!("{gecko}_{a}"),"attributes":{"address":a,"name":s,"symbol":s,"decimals":18}}));
+            }
+        }
+        let result = parse_assets_on(
+            &json!({"data":data,"included":included}),
+            "TOK",
+            false,
+            &networks,
+        )
+        .unwrap();
+        assert_eq!(result.len(), 2);
+        assert_ne!(result[0].chain_id, result[1].chain_id);
+        assert_eq!(result[0].market_cap_usd, None);
+        assert_eq!(result[0].fdv_usd, Some(1000.));
+        assert_eq!(result[0].change24h, Some(-5.));
     }
 }

@@ -30,6 +30,8 @@ struct ComponentGalleryView: View {
   @State private var component: GalleryComponent = .header
   @State private var example: TicketExample = .buy
   @State private var draft = TradeDraft()
+  @State private var limitDraft = LimitOrderDraft()
+  @State private var exitDraft = ExitOrderDraft()
   @State private var showMarket = true
 
   var body: some View {
@@ -58,7 +60,10 @@ struct ComponentGalleryView: View {
       } else if component == .quotes {
         HStack {
           Spacer(minLength: 0)
-          SwapQuoteTicketView(asset: .backpack, draft: $draft).frame(width: 300)
+          SwapQuoteTicketView(
+            asset: .backpack, draft: $draft, limitDraft: $limitDraft, exitDraft: $exitDraft
+          ).frame(
+            width: 300)
           Spacer(minLength: 0)
         }
       } else {

@@ -59,7 +59,7 @@ struct SwapQuote: Decodable, Identifiable, Equatable, Sendable {
       && Date().timeIntervalSince1970 >= fetchedAt - 5
   }
   var feeText: String {
-    "\(DisplayFormat.number(Decimal(feeBps) / 100, decimals: 2))%\(feeBps == 0 ? "" : " · \(feeSymbol)")"
+    "\(DisplayFormat.number(Decimal(feeBps) / 100, decimals: 2))%\(feeBps == 0 || feeSymbol.isEmpty ? "" : " · \(feeSymbol)")"
   }
   var impactText: String {
     priceImpactPercent.map { "\(DisplayFormat.number(Decimal($0), decimals: 4))%" } ?? "Unavailable"

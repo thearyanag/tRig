@@ -70,7 +70,7 @@ enum ConnectionProfileRules {
   }
 }
 
-private final class ConnectionRedirectGuard: NSObject, URLSessionTaskDelegate, Sendable {
+final class ConnectionRedirectGuard: NSObject, URLSessionTaskDelegate, Sendable {
   func urlSession(
     _ session: URLSession, task: URLSessionTask,
     willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest,

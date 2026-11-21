@@ -15,6 +15,7 @@ pub struct Bar {
 
 #[derive(Clone, Serialize)]
 pub struct BarsResponse {
+    pub chain: String,
     pub bars: Vec<Bar>,
     pub fetched_at: u64,
     pub cached: bool,
@@ -25,6 +26,7 @@ pub struct BarsResponse {
 
 #[derive(Deserialize, Clone, Debug, Default)]
 pub struct BarsQuery {
+    pub chain: Option<String>,
     pub mint: Option<String>,
     pub pool: Option<String>,
     pub resolution: String,
@@ -34,6 +36,7 @@ pub struct BarsQuery {
 
 #[derive(Clone, Debug, Hash, Eq, PartialEq)]
 pub struct CacheKey {
+    pub chain: String,
     pub mint: String,
     pub pool: String,
     pub resolution: String,

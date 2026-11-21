@@ -3,6 +3,7 @@
   const resolutions = ["1", "5", "15", "60", "240", "720", "1D"];
   const settings = new URLSearchParams(location.search);
   const mint = settings.get("mint") || "BPxxfRCXkUVhig4HS1Lh7kZqV6SPJhzfEk4x6fVBjPCy";
+  const chain = settings.get("chain") || "solana";
   const pool = settings.get("pool") || "6qz7THwQvcjF3HyDGLuKaLBUk6EyJKeZXZMWLAeiwfjd";
   const assetSymbol = settings.get("symbol") || "BP";
   const assetName = settings.get("name") || "Backpack";
@@ -16,6 +17,8 @@
   let active = true;
   let disposed = false;
   let lastQuoteFetch = 0;
+  let limitController;
+  let pendingLimit = [];
   const theme = new URLSearchParams(location.search).get("theme") === "light" ? "Light" : "Dark";
   document.documentElement.classList.toggle("light", theme === "Light");
 
@@ -27,13 +30,13 @@
     const controller = new AbortController();
     controllers.add(controller);
     const timeout = setTimeout(() => controller.abort(), 90000);
-    const params = new URLSearchParams({ resolution, limit: String(limit), mint, pool });
+    const params = new URLSearchParams({ resolution, limit: String(limit), mint, pool, chain });
     if (before !== undefined) params.set("before", String(before));
     try {
       const response = await fetch(`/api/chart/bars?${params}`, { signal: controller.signal, cache: "no-store" });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || `Chart request failed (${response.status})`);
-      if (payload.mint !== mint || payload.pool !== pool) throw new Error("Chart asset identity mismatch");
+      if (payload.mint !== mint || payload.pool !== pool || (payload.chain || "solana") !== chain) throw new Error("Chart asset identity mismatch");
       if (!Array.isArray(payload.bars)) throw new Error("Candle response is invalid");
       return payload;
     } finally {
@@ -46,7 +49,7 @@
     const latest = payload.bars.at(-1);
     if (latest && payload.fetched_at >= lastQuoteFetch && widget?.activeChart().resolution() === resolution) {
       lastQuoteFetch = payload.fetched_at;
-      report("ready", "GeckoTerminal", { lastClose: latest.close, fetchedAt: payload.fetched_at, candleTime: latest.time });
+      report("ready", "Chart updated", { lastClose: latest.close, fetchedAt: payload.fetched_at, candleTime: latest.time });
     }
   }
 
@@ -74,19 +77,24 @@
     async getBars(_info, resolution, period, onHistory, onError) {
       try {
         report("loading", "Loading candles…");
-        const limit = Math.min(1000, Math.max(300, period.countBack || 300));
         // Latest requests share a cache key. Historical requests preserve their right boundary.
         const seconds = { "1": 60, "5": 300, "15": 900, "60": 3600, "240": 14400, "720": 43200, "1D": 86400 }[resolution];
         const nearPresent = period.to >= Date.now() / 1000 - seconds * 2;
         const before = period.firstDataRequest && nearPresent ? undefined : Math.max(1, Math.floor(period.to) - 1);
+        // 300 covers the available daily window and reuses the resolver's request.
+        const limit = resolution === "1D" && before === undefined
+          ? 300 : Math.min(1000, Math.max(300, period.countBack || 300));
         const payload = await requestBars(resolution, limit, before);
         if (disposed) return;
         const bars = payload.bars.filter(bar => bar.time < period.to * 1000);
         if (bars.length) historyTimes.set(resolution, Math.max(historyTimes.get(resolution) || 0, bars.at(-1).time));
         if (period.firstDataRequest && nearPresent) publishQuote(payload, resolution);
-        onHistory(bars.map(bar => ({ ...bar })), { noData: bars.length === 0 });
+        // This endpoint returns up to the requested number of available bars
+        // within our bounded history. A short page already exhausts that history;
+        // do not make TradingView wait on another rate-limited empty request.
+        onHistory(bars.map(bar => ({ ...bar })), { noData: payload.bars.length < limit });
         if (!bars.length && period.firstDataRequest) report("empty", "No candles available for this asset.");
-        else if (!period.firstDataRequest) report("ready", "GeckoTerminal");
+        else if (!period.firstDataRequest) report("ready", "Chart updated");
       } catch (error) {
         if (disposed) return;
         const message = error.name === "AbortError" ? "Candle request timed out. Try again." : error.message;
@@ -128,6 +136,10 @@
   };
 
   window.chartHost = {
+    setLimitDraft(value) {
+      pendingLimit = value;
+      limitController?.set(value);
+    },
     setActive(value) {
       const resumed = value && !active;
       active = value;
@@ -137,6 +149,7 @@
       disposed = true;
       for (const id of subscriptions.keys()) datafeed.unsubscribeBars(id);
       for (const controller of controllers) controller.abort();
+      limitController?.dispose();
       widget?.remove();
     }
   };
@@ -155,6 +168,13 @@
         "paneProperties.horzGridProperties.color": theme === "Dark" ? "#20282f" : "#eeeeee"
       },
       loading_screen: { backgroundColor: theme === "Dark" ? "#13191e" : "#ffffff" }
+    });
+    widget.onChartReady?.(() => {
+      if (disposed) return;
+      limitController = window.createDraftLinesController(widget, mint, priceDigits, value => {
+        window.webkit?.messageHandlers?.limitDraft?.postMessage(value);
+      });
+      limitController.set(pendingLimit);
     });
   } catch (error) { report("error", `Chart could not start: ${error.message}`); }
 })();

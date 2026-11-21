@@ -7,6 +7,7 @@ final class ConnectionBrowserSession: NSObject, WKNavigationDelegate, WKUIDelega
   WKHTTPCookieStoreObserver
 {
   let service: ConnectionService
+  @ObservationIgnored var onDisconnect: (@MainActor () async throws -> Void)?
   let webView: WKWebView
   private(set) var profile: ConnectedProfile?
   private(set) var isReading = false
@@ -56,6 +57,7 @@ final class ConnectionBrowserSession: NSObject, WKNavigationDelegate, WKUIDelega
     guard !cookies.isEmpty else { return }
     if service == .pump {
       refresh()
+      await readTask?.value
       return
     }
     start()
@@ -64,6 +66,7 @@ final class ConnectionBrowserSession: NSObject, WKNavigationDelegate, WKUIDelega
     for _ in 0..<10 {
       guard !Task.isCancelled else { return }
       refresh()
+      await readTask?.value
       if profile != nil { return }
       do { try await Task.sleep(for: .seconds(3)) } catch { return }
     }
@@ -124,8 +127,14 @@ final class ConnectionBrowserSession: NSObject, WKNavigationDelegate, WKUIDelega
   }
 
   func disconnect() async {
+    let previous = profile
     endConnection()
     profile = nil
+    do { try await onDisconnect?() } catch {
+      profile = previous
+      self.error = "Saved portfolio data could not be cleared. Try disconnecting again."
+      return
+    }
     error = nil
     webView.stopLoading()
     let store = webView.configuration.websiteDataStore

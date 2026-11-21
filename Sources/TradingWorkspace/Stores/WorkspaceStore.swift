@@ -33,7 +33,7 @@ final class WorkspaceStore {
       saved.version == 1, saved.selectedAsset.isValid
     {
       var seen = Set<String>()
-      watchlist = saved.watchlist.filter { $0.isValid && seen.insert($0.id).inserted }
+      watchlist = saved.watchlist.filter { $0.isValid && seen.insert($0.identity).inserted }
       selectedAsset = saved.selectedAsset
     } else {
       watchlist = [.backpack]
@@ -43,39 +43,44 @@ final class WorkspaceStore {
 
   func open(_ asset: Asset) {
     guard asset.isValid else { return }
-    if selectedAsset.id == asset.id, selectedAsset.pool == asset.pool { return }
+    if selectedAsset.identity == asset.identity, selectedAsset.pool == asset.pool { return }
     lastPrice = nil
     selectedAsset = asset
     selectionVersion += 1
     save()
   }
   func openWatched(_ id: String) {
-    if let asset = watchlist.first(where: { $0.id == id }) { open(asset) }
+    if let asset = watchlist.first(where: { $0.identity == id || ($0.isSolana && $0.id == id) }) {
+      open(asset)
+    }
   }
-  func isWatched(_ asset: Asset) -> Bool { watchlist.contains { $0.id == asset.id } }
+  func isWatched(_ asset: Asset) -> Bool { watchlist.contains { $0.identity == asset.identity } }
   func toggleWatch(_ asset: Asset) {
     if isWatched(asset) {
-      watchlist.removeAll { $0.id == asset.id }
+      watchlist.removeAll { $0.identity == asset.identity }
     } else if asset.isValid {
       watchlist.append(asset)
     }
     save()
   }
   func applyResolved(_ asset: Asset) {
-    guard asset.isValid, selectedAsset.id == asset.id else { return }
+    guard asset.isValid, selectedAsset.identity == asset.identity else { return }
     if selectedAsset.pool != asset.pool { lastPrice = nil }
     selectedAsset = asset
-    if let index = watchlist.firstIndex(where: { $0.id == asset.id }) { watchlist[index] = asset }
+    if let index = watchlist.firstIndex(where: { $0.identity == asset.identity }) {
+      watchlist[index] = asset
+    }
     save()
   }
   func receivePrice(_ price: Double, for asset: Asset) {
-    guard selectedAsset.id == asset.id, selectedAsset.pool == asset.pool, price.isFinite, price > 0
+    guard selectedAsset.identity == asset.identity, selectedAsset.pool == asset.pool,
+      price.isFinite, price > 0
     else { return }
     lastPrice = price
   }
   func step(_ offset: Int) {
     guard !watchlist.isEmpty else { return }
-    if let index = watchlist.firstIndex(where: { $0.id == selectedAsset.id }) {
+    if let index = watchlist.firstIndex(where: { $0.identity == selectedAsset.identity }) {
       open(watchlist[((index + offset) % watchlist.count + watchlist.count) % watchlist.count])
     } else {
       open(offset > 0 ? watchlist[0] : watchlist[watchlist.count - 1])

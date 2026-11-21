@@ -10,12 +10,60 @@ struct Asset: Identifiable, Hashable, Codable, Sendable {
   let priceUsd: Double?
   var imageURL: String? = nil
   var volume24h: Double? = nil
+  var chainId: String? = nil
+  var marketNetwork: String? = nil
+  var explorerUrl: String? = nil
+  var change24h: Double? = nil
+  var liquidityUsd: Double? = nil
+  var marketCapUsd: Double? = nil
+  var fdvUsd: Double? = nil
+  var quoteToken: MarketCurrency? = nil
+  var marketQuotes: Bool? = nil
+  var conditionalQuotes: Bool? = nil
+  var marketResolved: Bool? = nil
+  var marketRouteVersion: Int? = nil
+
+  var chainID: String { chainId ?? "solana" }
+  var isSolana: Bool { chainID == "solana" }
+  var identity: String { chainID + ":" + (isSolana ? id : id.lowercased()) }
+  var marketKey: String { identity + ":" + (isSolana ? pool : pool.lowercased()) }
+  var hasChart: Bool { !pool.isEmpty && (isSolana || marketNetwork != nil) }
+  var supportsConditions: Bool { conditionalQuotes ?? isSolana }
+  var settlement: MarketCurrency? {
+    if isSolana { return .usdc }
+    return quoteToken
+  }
+  var explorer: URL? {
+    guard let raw = explorerUrl ?? (isSolana ? "https://solscan.io" : nil),
+      let url = URL(string: raw), url.scheme == "https"
+    else { return nil }
+    return url
+  }
+  var tokenExplorer: URL? { explorer?.appendingPathComponent("token").appendingPathComponent(id) }
+  func transactionExplorer(_ hash: String) -> URL? {
+    explorer?.appendingPathComponent("tx").appendingPathComponent(hash)
+  }
 
   var shortAddress: String { "\(id.prefix(4))…\(id.suffix(4))" }
   var isValid: Bool {
-    network == "Solana" && (32...44).contains(id.count) && (32...44).contains(pool.count)
+    Self.validAddress(id, chain: chainID)
+      && (pool.isEmpty
+        || (isSolana
+          ? (32...44).contains(pool.count)
+          : [42, 66].contains(pool.count) && pool.hasPrefix("0x")
+            && pool.dropFirst(2).allSatisfy(\.isHexDigit)))
       && !name.isEmpty && !symbol.isEmpty && (decimals == nil || (0...255).contains(decimals!))
       && (priceUsd == nil || (priceUsd!.isFinite && priceUsd! > 0))
+  }
+  static func validAddress(_ value: String, chain: String) -> Bool {
+    if chain == "solana" {
+      return (32...44).contains(value.count)
+        && value.allSatisfy {
+          "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz".contains($0)
+        }
+    }
+    return chain.hasPrefix("eip155:") && UInt64(chain.dropFirst(7)).map { $0 > 0 } == true
+      && value.count == 42 && value.hasPrefix("0x") && value.dropFirst(2).allSatisfy(\.isHexDigit)
   }
   var systemImage: String { id == Self.backpack.id ? "backpack.fill" : "circle.hexagongrid.fill" }
 
@@ -24,4 +72,14 @@ struct Asset: Identifiable, Hashable, Codable, Sendable {
     name: "Backpack", symbol: "BP", network: "Solana",
     pool: "6qz7THwQvcjF3HyDGLuKaLBUk6EyJKeZXZMWLAeiwfjd", decimals: 9, priceUsd: nil
   )
+}
+
+struct MarketCurrency: Codable, Hashable, Sendable {
+  let address: String
+  let symbol: String
+  let name: String
+  let decimals: Int?
+  var imageUrl: String? = nil
+  static let usdc = MarketCurrency(
+    address: SwapQuoteInput.usdc, symbol: "USDC", name: "USD Coin", decimals: 6)
 }

@@ -2,6 +2,8 @@ import SwiftUI
 
 struct ChartPanelView: View {
   var asset: Asset = .backpack
+  var draftLines: [ChartLimitLine] = []
+  var onDraftPriceChange: (String, Double?, String) -> Void = { _, _, _ in }
   var onPriceChange: (Double) -> Void = { _ in }
   @State private var backend = ChartBackend.shared
   @State private var status = ChartStatus()
@@ -13,7 +15,7 @@ struct ChartPanelView: View {
       if let baseURL = backend.baseURL {
         TradingViewWebView(
           baseURL: baseURL, asset: asset, status: status, isActive: scenePhase != .background,
-          reloadID: reloadID
+          reloadID: reloadID, draftLines: draftLines, onDraftPriceChange: onDraftPriceChange
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
       } else if let error = backend.error {
@@ -32,7 +34,7 @@ struct ChartPanelView: View {
         Text(
           backend.error
             ?? (["error", "empty"].contains(status.phase)
-              ? status.message : "\(asset.symbol) · GeckoTerminal")
+              ? status.message : "\(asset.symbol)")
         )
         .lineLimit(2)
         .foregroundStyle(

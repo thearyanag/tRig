@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 
-function host(payloads) {
+function host(payloads, search = '?theme=dark') {
   let options;
   let timer;
   let resets = 0;
@@ -12,7 +12,7 @@ function host(payloads) {
   const chart = { resetData() { resets++; }, resolution() { return '1'; } };
   const context = {
     URLSearchParams, Date, Map, Set, AbortController, console,
-    location: { search: '?theme=dark' },
+    location: { search },
     document: { hidden: false, documentElement: { classList: { toggle() {} } } },
     window: { webkit: { messageHandlers: { chartStatus: { postMessage(v) { messages.push(v); } } } } },
     TradingView: { widget: function(value) { options = value; this.activeChart = () => chart; this.remove = () => {}; } },
@@ -105,4 +105,34 @@ test('candle requests carry asset identity and reject a mismatched response', as
 test('unknown TradingView symbols cannot silently resolve to the current asset', async () => {
   const h = host([]);
   await assert.rejects(new Promise((resolve, reject) => h.feed.resolveSymbol('unknown', resolve, reject)), /native search/);
+});
+
+test('EVM candle requests and responses remain scoped to their chain', async () => {
+  const mint = '0x1111111111111111111111111111111111111111', pool = '0x2222222222222222222222222222222222222222';
+  const data = { ...payload([1000]), mint, pool, chain: 'eip155:1' };
+  const h = host([data], `?mint=${mint}&pool=${pool}&chain=eip155:8453`);
+  await assert.rejects(history(h.feed, { firstDataRequest: true, to: Date.now()/1000, countBack: 1 }), /identity mismatch/);
+  assert.ok(h.requests[0].includes('chain=eip155%3A8453'));
+});
+
+test('the initial daily chart reuses route validation and receives the full available window', async () => {
+  const today = Math.floor(Date.now() / 86400000);
+  const times = Array.from({ length: 181 }, (_, index) => (today - 180 + index) * 86400000);
+  const h = host([payload(times)]);
+  const period = { firstDataRequest: true, to: (today + 1) * 86400, countBack: 330 };
+  const result = await new Promise((resolve, reject) => {
+    h.feed.getBars({}, '1D', period, (bars, meta) => resolve({ bars, meta }), reject);
+  });
+  assert.equal(result.bars.length, 181);
+  assert.equal(result.meta.noData, true);
+  const params = new URLSearchParams(h.requests[0].split('?')[1]);
+  assert.equal(params.get('limit'), '300');
+  assert.equal(params.has('before'), false);
+});
+
+test('a full history page keeps older pagination available', async () => {
+  const h=host([payload(Array.from({length:300},(_,i)=>(i+1)*1000))]);
+  const result=await history(h.feed,{firstDataRequest:false,to:301,countBack:300});
+  assert.equal(result.bars.length,300);
+  assert.equal(result.meta.noData,false);
 });

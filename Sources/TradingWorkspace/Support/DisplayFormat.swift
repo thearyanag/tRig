@@ -16,6 +16,7 @@ enum DisplayFormat {
     "$" + number(value, decimals: decimals)
   }
   static func compactCurrency(_ value: Decimal) -> String {
+    if value >= 1_000_000_000 { return currency(value / 1_000_000_000, decimals: 1) + "B" }
     if value >= 1_000_000 { return currency(value / 1_000_000, decimals: 1) + "M" }
     if value >= 1_000 { return currency(value / 1_000, decimals: 1) + "K" }
     return currency(value)

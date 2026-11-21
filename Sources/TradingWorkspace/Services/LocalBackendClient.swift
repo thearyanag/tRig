@@ -8,6 +8,14 @@ struct LocalBackendClient {
     var errorDescription: String? { message }
   }
   static func get(_ path: String, query: [URLQueryItem]) async throws -> Data {
+    try await request(path, query: query, body: nil)
+  }
+  static func post(_ path: String, body: Data) async throws -> Data {
+    try await request(path, query: [], body: body)
+  }
+  private static func request(_ path: String, query: [URLQueryItem], body: Data?) async throws
+    -> Data
+  {
     let backend = ChartBackend.shared
     backend.start()
     var base = backend.baseURL
@@ -22,8 +30,13 @@ struct LocalBackendClient {
     }
     var url = URLComponents(url: base.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
     url.queryItems = query
-    let request = URLRequest(
+    var request = URLRequest(
       url: url.url!, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 90)
+    if let body {
+      request.httpMethod = "POST"
+      request.httpBody = body
+      request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    }
     let (data, response) = try await URLSession.shared.data(for: request)
     try Task.checkCancellation()
     guard let http = response as? HTTPURLResponse else {

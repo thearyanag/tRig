@@ -8,10 +8,14 @@ use tokio::net::TcpListener;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = std::env::args().skip(1);
     let mut assets = None;
+    let mut database = None;
+    let mut quote_config = None;
     let mut parent = None;
     let mut port = 0;
     while let Some(arg) = args.next() {
         match arg.as_str() {
+            "--quote-config" => quote_config = args.next().map(PathBuf::from),
+            "--database" => database = args.next().map(PathBuf::from),
             "--assets" => assets = args.next().map(PathBuf::from),
             "--parent-pid" => {
                 parent = Some(args.next().ok_or("Missing parent PID")?.parse::<i32>()?)
@@ -28,7 +32,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         return Err("Chart resources are missing".into());
     }
-    let app = trading_data_service::router(assets)?;
+    let database = database.ok_or("--database is required")?;
+    let config = trading_data_service::execution::config::Config::load(quote_config.as_deref())?;
+    let app = trading_data_service::router(assets, &database, config)?;
     let listener = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, port)).await?;
     println!(
         "{}",

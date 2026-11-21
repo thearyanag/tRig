@@ -1,6 +1,6 @@
 import Foundation
 
-enum ConnectionService: String, CaseIterable, Identifiable, Sendable {
+enum ConnectionService: String, CaseIterable, Identifiable, Codable, Sendable {
   case fomo
   case pump
   var id: Self { self }

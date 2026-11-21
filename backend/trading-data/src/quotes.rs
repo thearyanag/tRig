@@ -1,4 +1,4 @@
-use crate::{discovery::is_address, now, ApiError, AppState};
+use crate::{discovery::is_address, ApiError, AppState};
 use axum::{
     extract::{Query, State},
     http::StatusCode,
@@ -6,11 +6,8 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::{collections::HashMap, time::Duration};
-use tokio::time::{sleep_until, Instant};
 
 pub const USDC: &str = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
-const SPACING: Duration = Duration::from_millis(2100);
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Hash)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -58,21 +55,6 @@ pub struct SwapQuote {
     pub router: String,
     pub fetched_at: u64,
     pub expires_at: u64,
-}
-
-pub struct QuoteState {
-    next_request: Instant,
-    tokens: HashMap<String, (Token, Instant)>,
-    cached: Option<(QuoteQuery, SwapQuote, Instant)>,
-}
-impl Default for QuoteState {
-    fn default() -> Self {
-        Self {
-            next_request: Instant::now(),
-            tokens: HashMap::new(),
-            cached: None,
-        }
-    }
 }
 
 fn bad(message: &str) -> ApiError {
@@ -162,50 +144,6 @@ pub fn order_url(query: &QuoteQuery, input: &Token, output: &Token, amount: u64)
         .append_pair("slippageBps", &query.slippage_bps.to_string());
     // Deliberately no taker, payer, receiver or wallet. This returns transaction:null.
     url
-}
-
-async fn jupiter(
-    state: &AppState,
-    quotes: &mut QuoteState,
-    url: reqwest::Url,
-) -> Result<Value, ApiError> {
-    sleep_until(quotes.next_request).await;
-    quotes.next_request = Instant::now() + SPACING;
-    let response = state.client.get(url).send().await.map_err(|_| {
-        ApiError(
-            StatusCode::BAD_GATEWAY,
-            "Could not reach Jupiter. Try again shortly.".into(),
-        )
-    })?;
-    if response.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
-        let wait = response
-            .headers()
-            .get("x-ratelimit-reset")
-            .and_then(|h| h.to_str().ok())
-            .and_then(|s| s.parse::<u64>().ok())
-            .map(|time| time.saturating_sub(now()).clamp(2, 120))
-            .unwrap_or(30);
-        quotes.next_request = Instant::now() + Duration::from_secs(wait);
-        return Err(ApiError(
-            StatusCode::TOO_MANY_REQUESTS,
-            format!("Jupiter rate limit reached. Retry in {wait} seconds."),
-        ));
-    }
-    if response.status() == reqwest::StatusCode::BAD_REQUEST
-        || response.status() == reqwest::StatusCode::NOT_FOUND
-    {
-        return Err(ApiError(
-            StatusCode::UNPROCESSABLE_ENTITY,
-            "Jupiter could not find a swap route for this asset and amount.".into(),
-        ));
-    }
-    if !response.status().is_success() {
-        return Err(ApiError(
-            StatusCode::BAD_GATEWAY,
-            "Jupiter quotes are temporarily unavailable.".into(),
-        ));
-    }
-    response.json().await.map_err(|_| invalid_response())
 }
 
 pub fn normalize_quote(
@@ -306,64 +244,72 @@ pub async fn quote(
     if !(1..=500).contains(&query.slippage_bps) {
         return Err(bad("Unsupported slippage tolerance."));
     }
-    // Syntactic checks before any network request; exact precision uses Jupiter metadata below.
-    amount_parts(&query.amount)?;
-    let mut quotes = state.quotes.lock().await;
-    if let Some((key, value, until)) = &quotes.cached {
-        if key == &query && *until > Instant::now() {
-            return Ok(Json(value.clone()));
-        }
-    }
-    let mints = [USDC, query.asset_mint.as_str()];
-    if mints.iter().any(|mint| {
-        quotes
-            .tokens
-            .get(*mint)
-            .is_none_or(|(_, until)| *until <= Instant::now())
-    }) {
-        let mut url =
-            reqwest::Url::parse("https://api.jup.ag/tokens/v2/search").expect("fixed token URL");
-        url.query_pairs_mut().append_pair("query", &mints.join(","));
-        let tokens: Vec<Token> = serde_json::from_value(jupiter(&state, &mut quotes, url).await?)
-            .map_err(|_| invalid_response())?;
-        for token in tokens {
-            if mints.contains(&token.id.as_str()) && !token.symbol.is_empty() {
-                quotes.tokens.insert(
-                    token.id.clone(),
-                    (token, Instant::now() + Duration::from_secs(86400)),
-                );
-            }
-        }
-    }
-    let token = |mint: &str| {
-        quotes
-            .tokens
-            .get(mint)
-            .filter(|(_, until)| *until > Instant::now())
-            .map(|(token, _)| token.clone())
-            .ok_or_else(|| {
-                ApiError(
-                    StatusCode::UNPROCESSABLE_ENTITY,
-                    "This token is unavailable on Jupiter.".into(),
-                )
-            })
-    };
-    let usdc = token(USDC)?;
-    let asset = token(&query.asset_mint)?;
     let (input, output) = if query.side == Side::Buy {
-        (usdc, asset)
+        (USDC, query.asset_mint.as_str())
     } else {
-        (asset, usdc)
+        (query.asset_mint.as_str(), USDC)
     };
-    let amount = atomic(&query.amount, input.decimals)?;
-    let url = order_url(&query, &input, &output, amount);
-    let body = jupiter(&state, &mut quotes, url).await?;
-    let result = normalize_quote(&body, &query, &input, &output, amount, now())?;
-    quotes.cached = Some((
-        query,
-        result.clone(),
-        Instant::now() + Duration::from_secs(3),
-    ));
+    let common = crate::execution::fetch(
+        &state,
+        crate::execution::types::QuoteRequest {
+            provider: Some(crate::execution::types::Provider::Jupiter),
+            side: Some(query.side),
+            input: crate::execution::types::TokenRef {
+                chain: "solana".into(),
+                address: input.into(),
+            },
+            output: crate::execution::types::TokenRef {
+                chain: "solana".into(),
+                address: output.into(),
+            },
+            amount: query.amount.clone(),
+            order_type: crate::execution::types::OrderType::Market,
+            slippage_bps: query.slippage_bps,
+            limit_price_usd: None,
+            trigger_price_usd: None,
+            context: Default::default(),
+        },
+    )
+    .await
+    .map_err(|e| ApiError(e.status, e.message))?;
+    let fee = common.fees.first();
+    let result = SwapQuote {
+        asset_mint: query.asset_mint,
+        side: query.side,
+        requested_amount: query.amount,
+        input_mint: common.input.address.clone(),
+        output_mint: common.output.address.clone(),
+        in_amount: crate::execution::amounts::atomic(
+            &common.pay_amount,
+            common.input.decimals.ok_or_else(invalid_response)?,
+        )
+        .map_err(|_| invalid_response())?,
+        out_amount: crate::execution::amounts::atomic(
+            &common.receive_amount,
+            common.output.decimals.ok_or_else(invalid_response)?,
+        )
+        .map_err(|_| invalid_response())?,
+        input_decimals: common.input.decimals.ok_or_else(invalid_response)?,
+        output_decimals: common.output.decimals.ok_or_else(invalid_response)?,
+        pay_amount: common.pay_amount,
+        pay_symbol: common.input.symbol,
+        receive_amount: common.receive_amount,
+        receive_symbol: common.output.symbol,
+        minimum_receive: common.minimum_receive.ok_or_else(invalid_response)?,
+        slippage_bps: common.slippage_bps,
+        fee_bps: fee.and_then(|f| f.rate_bps).unwrap_or(0),
+        fee_symbol: fee
+            .and_then(|f| f.token.as_ref())
+            .map(|t| t.symbol.clone())
+            .unwrap_or_default(),
+        price_impact_percent: common
+            .price_impact_percent
+            .and_then(|s| s.parse::<f64>().ok()),
+        router: "Jupiter".into(),
+        routes: common.routes,
+        fetched_at: common.fetched_at,
+        expires_at: common.expires_at,
+    };
     Ok(Json(result))
 }
 

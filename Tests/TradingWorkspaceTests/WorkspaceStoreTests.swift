@@ -60,3 +60,26 @@ private let sol = Asset(
   #expect(store.selectedAsset == .backpack)
   #expect(store.watchlist == [.backpack])
 }
+
+@Test @MainActor func identicalEVMAddressesOnDifferentChainsStaySeparate() {
+  let storage = MemoryWorkspacePersistence()
+  let store = WorkspaceStore(persistence: storage)
+  let a = Asset(
+    id: "0x1111111111111111111111111111111111111111", name: "Token", symbol: "TOK",
+    network: "Base", pool: "", decimals: 18, priceUsd: nil, chainId: "eip155:8453")
+  let b = Asset(id: a.id, name: a.name, symbol: a.symbol, network: "Ethereum",
+    pool: "", decimals: 18, priceUsd: nil, chainId: "eip155:1")
+  store.toggleWatch(a)
+  store.toggleWatch(b)
+  #expect(store.isWatched(a) && store.isWatched(b))
+  store.open(a)
+  store.receivePrice(10, for: b)
+  #expect(store.lastPrice == nil)
+  store.receivePrice(5, for: a)
+  #expect(store.lastPrice == 5)
+  store.toggleWatch(a)
+  #expect(!store.isWatched(a) && store.isWatched(b))
+  let restored = WorkspaceStore(persistence: storage)
+  #expect(restored.selectedAsset.identity == a.identity)
+  #expect(restored.isWatched(b))
+}

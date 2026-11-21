@@ -4,11 +4,21 @@ import SwiftUI
 @main
 struct TradingWorkspaceApp: App {
   @NSApplicationDelegateAdaptor(WorkspaceAppDelegate.self) private var delegate
-  @State private var connections = ConnectionStore()
-  init() { AppTypography.registerFonts() }
+  @State private var connections: ConnectionStore
+  @State private var portfolio: PortfolioStore
+  init() {
+    AppTypography.registerFonts()
+    let connections = ConnectionStore()
+    let portfolio = PortfolioStore()
+    portfolio.bind(connections)
+    _connections = State(initialValue: connections)
+    _portfolio = State(initialValue: portfolio)
+  }
   var body: some Scene {
     WindowGroup("Trading Workspace", id: "workspace") {
       WorkspaceView()
+        .environment(connections)
+        .environment(portfolio)
         .font(AppTypography.body)
     }
     .windowStyle(.hiddenTitleBar)

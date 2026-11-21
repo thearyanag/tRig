@@ -11,7 +11,7 @@ struct SwapTokenAmountView: View {
   let amountFocused: FocusState<Bool>.Binding
   let selectToken: (Bool) -> Void
   var submit: () -> Void = {}
-  private var symbol: String { usesUSDC ? "USDC" : asset.symbol }
+  private var symbol: String { usesUSDC ? asset.settlement?.symbol ?? "Quote token" : asset.symbol }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 5) {
@@ -19,7 +19,7 @@ struct SwapTokenAmountView: View {
       HStack(spacing: 8) {
         tokenIcon
         Menu {
-          Button("USDC") { selectToken(true) }
+          Button(asset.settlement?.symbol ?? "Quote token") { selectToken(true) }
           Button(asset.symbol) { selectToken(false) }
         } label: {
           Text(symbol).font(AppTypography.calloutMedium).lineLimit(1)
@@ -64,7 +64,10 @@ struct SwapTokenAmountView: View {
   }
 
   @ViewBuilder private var tokenIcon: some View {
-    if usesUSDC, let url = Bundle.main.resourceURL?.appendingPathComponent("Icons/usdc.png"),
+    if usesUSDC, asset.settlement?.symbol != "USDC" {
+      Image(systemName: "circle.hexagongrid.fill").foregroundStyle(.secondary).frame(
+        width: 20, height: 20)
+    } else if usesUSDC, let url = Bundle.main.resourceURL?.appendingPathComponent("Icons/usdc.png"),
       let icon = NSImage(contentsOf: url)
     {
       Image(nsImage: icon).resizable().scaledToFit().frame(width: 20, height: 20)
