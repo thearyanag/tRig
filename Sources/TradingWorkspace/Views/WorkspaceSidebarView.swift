@@ -3,8 +3,10 @@ import SwiftUI
 struct WorkspaceSidebarView: View {
   let workspace: WorkspaceStore
   let selection: Binding<String?>
+  @Binding var showContext: Bool
+  let telegram: TelegramSession
   let openSearch: () -> Void
-  @State private var section = "Watchlist"
+  private var section: String { showContext ? "Context" : "Watchlist" }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
@@ -13,7 +15,7 @@ struct WorkspaceSidebarView: View {
       HStack(spacing: 4) {
         ForEach(["Context", "Watchlist"], id: \.self) { tab in
           Button {
-            section = tab
+            showContext = tab == "Context"
           } label: {
             Text(tab).font(AppTypography.calloutMedium)
               .frame(maxWidth: .infinity).frame(height: 30)
@@ -28,16 +30,16 @@ struct WorkspaceSidebarView: View {
         }
       }
       .padding(.horizontal, 18).padding(.vertical, 12)
-      VStack(alignment: .leading, spacing: 12) {
-        Text("Your account").font(AppTypography.bodySemibold)
-        Label("No wallet connected", systemImage: "wallet.bifold")
-          .font(AppTypography.callout).foregroundStyle(.secondary)
-        Text("Wallet connection is not available yet.")
-          .font(AppTypography.caption).foregroundStyle(.secondary)
-      }
-      .padding(18)
-      Divider().padding(.horizontal, 18)
-      if section == "Watchlist" {
+      if !showContext {
+        VStack(alignment: .leading, spacing: 12) {
+          Text("Your account").font(AppTypography.bodySemibold)
+          Label("No wallet connected", systemImage: "wallet.bifold")
+            .font(AppTypography.callout).foregroundStyle(.secondary)
+          Text("Wallet connection is not available yet.")
+            .font(AppTypography.caption).foregroundStyle(.secondary)
+        }
+        .padding(18)
+        Divider().padding(.horizontal, 18)
         HStack {
           Text("Watchlist").font(AppTypography.bodySemibold)
           Text("\(workspace.watchlist.count)").font(AppTypography.caption).foregroundStyle(
@@ -72,20 +74,8 @@ struct WorkspaceSidebarView: View {
           }
         }
       } else {
-        VStack(alignment: .leading, spacing: 12) {
-          Text("Selected asset").font(AppTypography.bodySemibold)
-          contextRow("Network", workspace.selectedAsset.network)
-          contextRow("Pair", "\(workspace.selectedAsset.symbol) / USD")
-          contextRow(
-            "Market quotes",
-            workspace.selectedAsset.marketQuotes == false ? "Unavailable" : "Available")
-          contextRow(
-            "Limit / TP/SL",
-            workspace.selectedAsset.supportsConditions ? "Available" : "Unavailable")
-          contextRow("Execution", "Unavailable")
-        }
-        .padding(18)
-        Spacer(minLength: 0)
+        TelegramDiscussionView(asset: workspace.selectedAsset, session: telegram)
+          .id(workspace.selectedAsset.identity + telegram.epoch.uuidString)
       }
       Divider().padding(.horizontal, 18)
       Button {
@@ -103,11 +93,4 @@ struct WorkspaceSidebarView: View {
     .background(TerminalStyle.canvas)
   }
 
-  private func contextRow(_ label: String, _ value: String) -> some View {
-    HStack {
-      Text(label).foregroundStyle(.secondary)
-      Spacer()
-      Text(value)
-    }.font(AppTypography.callout)
-  }
 }

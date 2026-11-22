@@ -2,7 +2,9 @@ import SwiftUI
 
 struct SettingsView: View {
   @Environment(ConnectionStore.self) private var connections
+  @Environment(TelegramSession.self) private var telegram
   @State private var connecting: ConnectionService?
+  @State private var showTelegram = false
 
   var body: some View {
     VStack(alignment: .leading, spacing: 20) {
@@ -14,6 +16,10 @@ struct SettingsView: View {
       ForEach(ConnectionService.allCases) { service in
         ConnectionSettingsRow(session: connections.session(for: service)) { connecting = service }
       }
+      TelegramSettingsRow(session: telegram) {
+        showTelegram = true
+        telegram.connect()
+      }
       Text("Account connections are separate from trading wallets.")
         .font(AppTypography.caption).foregroundStyle(.secondary)
     }
@@ -22,6 +28,11 @@ struct SettingsView: View {
     .task { await connections.restore() }
     .sheet(item: $connecting) { service in
       ConnectionBrowserView(session: connections.session(for: service))
+    }
+    .sheet(isPresented: $showTelegram, onDismiss: {
+      if !telegram.isConnected { Task { await telegram.close() } }
+    }) {
+      TelegramConnectionView(session: telegram)
     }
   }
 }

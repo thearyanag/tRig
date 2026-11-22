@@ -44,6 +44,14 @@ mkdir -p "$APP_BUNDLE/Contents/Resources/Chart/fonts"
 cp "$ROOT_DIR/Sources/TradingWorkspace/Resources/Fonts/AlloVariable.woff2" "$APP_BUNDLE/Contents/Resources/Chart/fonts/"
 cp "$ROOT_DIR/Sources/TradingWorkspace/Resources/Fonts/OFL.txt" "$APP_BUNDLE/Contents/Resources/Chart/fonts/"
 
+TDLIB_BUILD="$ROOT_DIR/.build/telegram/tdlib-$(uname -m)"
+if [[ -f "$TDLIB_BUILD/libtdjson.dylib" && -f "$TDLIB_BUILD/bundled-revision" ]]; then
+  mkdir -p "$APP_BUNDLE/Contents/Frameworks"
+  cp -L "$TDLIB_BUILD/libtdjson.dylib" "$APP_BUNDLE/Contents/Frameworks/libtdjson.dylib.new"
+  mv -f "$APP_BUNDLE/Contents/Frameworks/libtdjson.dylib.new" "$APP_BUNDLE/Contents/Frameworks/libtdjson.dylib"
+  cp "$TDLIB_BUILD/TDLib-LICENSE.txt" "$TDLIB_BUILD/OpenSSL-LICENSE.txt" "$APP_BUNDLE/Contents/Resources/"
+fi
+
 cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

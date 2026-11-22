@@ -87,6 +87,9 @@ ticket for component fixtures and includes a separate live Swap quotes tab.
 
 ## Account connections
 
+For read-only Telegram discussion in Markets → Context, see
+[Telegram discussion setup](telegram-discussion.md).
+
 Open the top-right Settings gear or press **Command-,**. **Connect Fomo** and
 **Connect Pumpfun** open the official website in an in-app sign-in window.
 After the signed-in profile is confirmed, the window closes and Settings shows

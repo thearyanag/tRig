@@ -7,11 +7,13 @@ struct WorkspaceView: View {
   @Environment(PortfolioStore.self) private var portfolio
   @Environment(\.scenePhase) private var scenePhase
   @Environment(ConnectionStore.self) private var connections
+  @Environment(TelegramSession.self) private var telegram
   @SceneStorage("workspace.section") private var sectionRaw = WorkspaceSection.markets.rawValue
   @State private var marketOpenTask: Task<Void, Never>?
   @State private var marketOpenError: String?
   @State private var showSearch = false
   @SceneStorage("workspace.sidebarVisible") private var showSidebar = true
+  @SceneStorage("workspace.contextVisible") private var showContext = false
   @State private var draft = TradeDraft()
   @State private var limitDraft = LimitOrderDraft()
   @State private var exitDraft = ExitOrderDraft()
@@ -42,7 +44,8 @@ struct WorkspaceView: View {
       } else {
         HStack(spacing: 0) {
           if showSidebar {
-            WorkspaceSidebarView(workspace: workspace, selection: selection) { showSearch = true }
+            WorkspaceSidebarView(workspace: workspace, selection: selection, showContext: $showContext,
+              telegram: telegram) { showSearch = true }
               .frame(width: 304)
             Divider()
           }
@@ -107,7 +110,11 @@ struct WorkspaceView: View {
       AssetHeaderView(
         asset: asset, livePrice: price, isLiveMarket: true, snapshot: snapshot,
         tradesVisible: showTrades, toggleTrades: { showTrades.toggle() },
-        marketError: marketData.snapshotError)
+        marketError: marketData.snapshotError,
+        showTelegramDiscussion: telegram.isConnected ? {
+          showSidebar = true
+          showContext = true
+        } : nil)
       Divider()
       HSplitView {
         Group {
@@ -216,6 +223,7 @@ struct WorkspaceView: View {
 }
 
 #Preview {
-  WorkspaceView().environment(ConnectionStore()).environment(PortfolioStore()).frame(
+  WorkspaceView().environment(ConnectionStore()).environment(PortfolioStore())
+    .environment(TelegramSession.shared).frame(
     width: 1400, height: 900)
 }

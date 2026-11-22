@@ -6,6 +6,7 @@ struct TradingWorkspaceApp: App {
   @NSApplicationDelegateAdaptor(WorkspaceAppDelegate.self) private var delegate
   @State private var connections: ConnectionStore
   @State private var portfolio: PortfolioStore
+  @State private var telegram = TelegramSession.shared
   init() {
     AppTypography.registerFonts()
     let connections = ConnectionStore()
@@ -19,7 +20,9 @@ struct TradingWorkspaceApp: App {
       WorkspaceView()
         .environment(connections)
         .environment(portfolio)
+        .environment(telegram)
         .font(AppTypography.body)
+        .task { telegram.restore() }
     }
     .windowStyle(.hiddenTitleBar)
     .defaultSize(width: 1400, height: 900)
@@ -34,7 +37,7 @@ struct TradingWorkspaceApp: App {
     .defaultSize(width: 760, height: 860)
 
     Settings {
-      SettingsView().environment(connections)
+      SettingsView().environment(connections).environment(telegram)
     }
   }
 }
@@ -43,6 +46,15 @@ private final class WorkspaceAppDelegate: NSObject, NSApplicationDelegate {
   func applicationDidFinishLaunching(_ notification: Notification) {
     NSApp.setActivationPolicy(.regular)
     NSApp.activate(ignoringOtherApps: true)
+  }
+  func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+    let telegram = TelegramSession.shared
+    guard telegram.needsGracefulClose else { return .terminateNow }
+    Task {
+      await telegram.close()
+      sender.reply(toApplicationShouldTerminate: true)
+    }
+    return .terminateLater
   }
   func applicationWillTerminate(_ notification: Notification) { ChartBackend.shared.stop() }
 }

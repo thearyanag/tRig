@@ -9,11 +9,21 @@ struct AssetHeaderView: View {
   var tradesVisible = false
   var toggleTrades: (() -> Void)? = nil
   var marketError: String? = nil
+  var showTelegramDiscussion: (() -> Void)? = nil
 
   var body: some View {
     VStack(spacing: 0) {
       HStack(spacing: 16) {
         AssetIdentityView(asset: asset)
+        if let showTelegramDiscussion {
+          Button(action: showTelegramDiscussion) {
+            Label("Telegram discussion", systemImage: "paperplane")
+              .font(AppTypography.caption).padding(.horizontal, 7).padding(.vertical, 5)
+          }
+          .buttonStyle(.plain).foregroundStyle(.blue)
+          .background(RoundedRectangle(cornerRadius: 4).strokeBorder(
+            TerminalStyle.accent.opacity(0.55)))
+        }
         Spacer(minLength: 8)
         if let snapshot {
           if snapshot.rangeLoading == true {
