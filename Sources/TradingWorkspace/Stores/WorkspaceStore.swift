@@ -36,8 +36,8 @@ final class WorkspaceStore {
       watchlist = saved.watchlist.filter { $0.isValid && seen.insert($0.identity).inserted }
       selectedAsset = saved.selectedAsset
     } else {
-      watchlist = [.backpack]
-      selectedAsset = .backpack
+      watchlist = [.solana]
+      selectedAsset = .solana
     }
   }
 

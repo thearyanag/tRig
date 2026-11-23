@@ -67,6 +67,12 @@ struct Asset: Identifiable, Hashable, Codable, Sendable {
   }
   var systemImage: String { id == Self.backpack.id ? "backpack.fill" : "circle.hexagongrid.fill" }
 
+  // Resolve the current SOL market on first open rather than seeding an old pool or price.
+  static let solana = Asset(
+    id: "So11111111111111111111111111111111111111112",
+    name: "Solana", symbol: "SOL", network: "Solana", pool: "", decimals: 9, priceUsd: nil
+  )
+
   static let backpack = Asset(
     id: "BPxxfRCXkUVhig4HS1Lh7kZqV6SPJhzfEk4x6fVBjPCy",
     name: "Backpack", symbol: "BP", network: "Solana",

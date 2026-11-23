@@ -5,10 +5,18 @@ struct AssetIconView: View {
   let asset: Asset
   var size: CGFloat = 44
 
+  private var bundledIcon: String? {
+    switch asset.id {
+    case Asset.backpack.id: "backpack.png"
+    case Asset.solana.id: "solana.jpg"
+    default: nil
+    }
+  }
+
   var body: some View {
     Group {
-      if asset.id == Asset.backpack.id,
-        let url = Bundle.main.resourceURL?.appendingPathComponent("Icons/backpack.png"),
+      if let bundledIcon,
+        let url = Bundle.main.resourceURL?.appendingPathComponent("Icons/\(bundledIcon)"),
         let image = NSImage(contentsOf: url)
       {
         Image(nsImage: image).resizable().scaledToFit()

@@ -8,6 +8,8 @@ struct WorkspaceView: View {
   @Environment(\.scenePhase) private var scenePhase
   @Environment(ConnectionStore.self) private var connections
   @Environment(TelegramSession.self) private var telegram
+  @AppStorage("workspace.completedWelcomeTour.v1") private var completedWelcomeTour = false
+  @State private var welcomeStep: WorkspaceOnboardingStep = .markets
   @SceneStorage("workspace.section") private var sectionRaw = WorkspaceSection.markets.rawValue
   @State private var marketOpenTask: Task<Void, Never>?
   @State private var marketOpenError: String?
@@ -62,8 +64,31 @@ struct WorkspaceView: View {
       + String(scenePhase != .background)
   }
 
-  var body: some View {
+  private var workspaceWithWelcome: some View {
     content
+      .disabled(!completedWelcomeTour)
+      .allowsHitTesting(completedWelcomeTour)
+      .accessibilityHidden(!completedWelcomeTour)
+      .overlay {
+        if !completedWelcomeTour {
+          WorkspaceOnboardingView(step: $welcomeStep, onFinish: finishWelcomeTour)
+        }
+      }
+      .onAppear {
+        if !completedWelcomeTour { sectionRaw = WorkspaceSection.markets.rawValue }
+      }
+      .task(id: completedWelcomeTour) {
+        if completedWelcomeTour { telegram.restore() }
+      }
+  }
+
+  private var searchCommand: (() -> Void)? {
+    guard completedWelcomeTour else { return nil }
+    return { showSearch = true }
+  }
+
+  var body: some View {
+    workspaceWithWelcome
       .task { portfolio.start(connections) }
       .onChange(of: connections.accountSignature) { _, _ in portfolio.connectionChanged() }
       .onChange(of: scenePhase) { _, phase in
@@ -72,8 +97,8 @@ struct WorkspaceView: View {
       }
       .toolbar(.hidden, for: .windowToolbar)
       .ignoresSafeArea(.container, edges: .top)
-      .focusedSceneValue(\.openAssetSearch, { showSearch = true })
-      .focusedSceneValue(\.workspaceStore, workspace)
+      .focusedSceneValue(\.openAssetSearch, searchCommand)
+      .focusedSceneValue(\.workspaceStore, completedWelcomeTour ? workspace : nil)
       .sheet(isPresented: $showSearch) {
         AssetSearchView(
           workspace: workspace, onOpen: { sectionRaw = WorkspaceSection.markets.rawValue })
@@ -100,6 +125,11 @@ struct WorkspaceView: View {
       .frame(minWidth: showSidebar && showTrades ? 1280 : 1100, minHeight: 740)
       .preferredColorScheme(.dark)
       .tint(.blue)
+  }
+
+  private func finishWelcomeTour() {
+    sectionRaw = WorkspaceSection.markets.rawValue
+    completedWelcomeTour = true
   }
 
   private func tradingLayout(_ asset: Asset) -> some View {

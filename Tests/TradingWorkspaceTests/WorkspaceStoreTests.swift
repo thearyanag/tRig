@@ -16,17 +16,18 @@ private let sol = Asset(
 @Test @MainActor func watchlistAndSelectionSurviveRestorationWithoutAPrice() {
   let storage = MemoryWorkspacePersistence()
   let store = WorkspaceStore(persistence: storage)
-  store.toggleWatch(sol)
-  store.open(sol)
-  store.receivePrice(123, for: sol)
+  store.toggleWatch(.backpack)
+  store.open(.backpack)
+  store.receivePrice(1.2, for: .backpack)
   let restored = WorkspaceStore(persistence: storage)
-  #expect(restored.watchlist.map(\.id) == [Asset.backpack.id, sol.id])
-  #expect(restored.selectedAsset.id == sol.id)
+  #expect(restored.watchlist.map(\.id) == [sol.id, Asset.backpack.id])
+  #expect(restored.selectedAsset == .backpack)
   #expect(restored.lastPrice == nil)
 }
 
 @Test @MainActor func oldAssetResponsesCannotOverwriteTheNewSelection() {
   let store = WorkspaceStore(persistence: MemoryWorkspacePersistence())
+  store.open(.backpack)
   store.receivePrice(1.2, for: .backpack)
   store.open(sol)
   #expect(store.lastPrice == nil)
@@ -40,7 +41,7 @@ private let sol = Asset(
 
 @Test @MainActor func watchRemovalDoesNotCloseTheAssetAndNavigationWraps() {
   let store = WorkspaceStore(persistence: MemoryWorkspacePersistence())
-  store.toggleWatch(sol)
+  store.toggleWatch(.backpack)
   store.open(sol)
   store.step(1)
   #expect(store.selectedAsset.id == Asset.backpack.id)
@@ -57,8 +58,17 @@ private let sol = Asset(
   let storage = MemoryWorkspacePersistence()
   storage.data = Data("not json".utf8)
   let store = WorkspaceStore(persistence: storage)
-  #expect(store.selectedAsset == .backpack)
-  #expect(store.watchlist == [.backpack])
+  #expect(store.selectedAsset == .solana)
+  #expect(store.watchlist == [.solana])
+}
+
+@Test @MainActor func freshWorkspaceStartsOnSolanaWithoutInventingAPool() {
+  let store = WorkspaceStore(persistence: MemoryWorkspacePersistence())
+  #expect(store.selectedAsset.identity == "solana:\(sol.id)")
+  #expect(store.selectedAsset.symbol == "SOL")
+  #expect(store.selectedAsset.isValid)
+  #expect(store.selectedAsset.pool.isEmpty)
+  #expect(store.isWatched(.solana))
 }
 
 @Test @MainActor func identicalEVMAddressesOnDifferentChainsStaySeparate() {

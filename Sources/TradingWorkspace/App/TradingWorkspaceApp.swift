@@ -22,7 +22,6 @@ struct TradingWorkspaceApp: App {
         .environment(portfolio)
         .environment(telegram)
         .font(AppTypography.body)
-        .task { telegram.restore() }
     }
     .windowStyle(.hiddenTitleBar)
     .defaultSize(width: 1400, height: 900)
