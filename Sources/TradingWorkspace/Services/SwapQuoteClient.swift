@@ -11,11 +11,6 @@ struct SwapQuoteClient {
         URLQueryItem(name: "amount", value: input.amount),
         URLQueryItem(name: "slippageBps", value: String(input.slippageBps)),
       ])
-    let quote = try JSONDecoder().decode(SwapQuote.self, from: data)
-    guard quote.matches(input) else {
-      throw LocalBackendClient.RequestError(
-        message: "Quote identity could not be confirmed. Refresh to try again.")
-    }
-    return quote
+    return try JSONDecoder().decode(SwapQuote.self, from: data)
   }
 }

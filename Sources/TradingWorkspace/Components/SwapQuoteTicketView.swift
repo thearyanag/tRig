@@ -41,7 +41,7 @@ struct SwapQuoteTicketView: View {
 
   private var marketTicket: some View {
     TimelineView(.periodic(from: .now, by: 1)) { context in
-      let quote = store.visibleQuote(for: input)
+      let quote = store.visible(for: input)
       let fresh = quote?.isFresh(at: context.date) == true
       ScrollView {
         VStack(spacing: 8) {
@@ -138,7 +138,7 @@ struct SwapQuoteTicketView: View {
     }
     .font(AppTypography.body).background(TerminalStyle.panel)
     .onChange(of: input) { _, value in
-      if store.input != value { store.clear() }
+      store.requestDidChange(value)
       review = nil
     }
     .onDisappear { store.clear() }

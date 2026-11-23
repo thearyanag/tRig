@@ -31,8 +31,12 @@ private func response(
 }
 
 @Test func quoteInputsAndFreshnessAreBounded() throws {
-  for value in ["", "0", "-1", "1e3", "1,000", ".", "1.2.3"] { #expect(!input(value).isValid) }
-  #expect(input("0.000000001").isValid)
+  for value in ["", "0", "-1", "1e3", "1,000", ".", "1.2.3", "١", String(repeating: "1", count: 301)] {
+    #expect(!input(value).isValid)
+  }
+  for value in [".5", "5.", "0.000000001", " 5 ", String(repeating: "1", count: 300)] {
+    #expect(input(value).isValid)
+  }
   let quote = try response(input())
   #expect(quote.matches(input()))
   #expect(!quote.matches(input("101")))
@@ -69,7 +73,7 @@ private func response(
   try client.complete(second)
   await until { store.quote != nil }
   #expect(store.quote?.requestedAmount == "101")
-  #expect(store.visibleQuote(for: first) == nil)
+  #expect(store.visible(for: first) == nil)
   try client.complete(first)
   await Task.yield()
   #expect(store.quote?.requestedAmount == "101")
@@ -85,6 +89,14 @@ private func response(
   await Task.yield()
   #expect(store.quote == nil)
   #expect(!store.isLoading)
+}
+
+@Test @MainActor func swapStoreRejectsAResponseForAnotherAmount() async {
+  let store = SwapQuoteStore(fetch: { _ in try response(input("101")) })
+  store.load(input("100"))
+  await until { !store.isLoading }
+  #expect(store.quote == nil)
+  #expect(store.error == "Quote identity could not be confirmed. Refresh to try again.")
 }
 
 @Test func selectingTheOtherQuoteSideClearsAmountsInDifferentUnits() {

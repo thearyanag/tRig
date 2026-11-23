@@ -22,10 +22,12 @@ import Testing
     explorerUrl: "https://basescan.org",
     quoteToken: .init(
       address: "0x2222222222222222222222222222222222222222", symbol: "USDC", name: "USD Coin",
-      decimals: 6),
+      decimals: 6, imageUrl: "https://example.com/usdc.png"),
     marketQuotes: true, conditionalQuotes: true)
   #expect(a.isValid && !a.hasChart)
   #expect(a.tokenExplorer?.host == "basescan.org")
+  #expect(a.settlementAsset?.identity == "eip155:8453:0x2222222222222222222222222222222222222222")
+  #expect(a.settlementAsset?.imageURL == a.quoteToken?.imageUrl)
   var limit = LimitOrderDraft()
   limit.setEnabled(true, reference: 1, side: .buy)
   let r = limit.request(asset: a, trade: TradeDraft())
@@ -36,4 +38,6 @@ import Testing
   a.chainId = "eip155:8453"
   a.explorerUrl = "javascript:alert(1)"
   #expect(a.tokenExplorer == nil)
+  a.quoteToken = nil
+  #expect(a.settlementAsset == nil)
 }

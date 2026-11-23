@@ -7,7 +7,7 @@ struct LimitOrderDraft {
   private(set) var revision = UUID().uuidString
 
   var price: Double? {
-    guard ExecutionQuoteRequest.positive(priceText), let value = Double(priceText),
+    guard QuoteAmount.isPositive(priceText), let value = Double(priceText),
       value.isFinite, value > 0
     else { return nil }
     return value
@@ -52,16 +52,15 @@ struct LimitOrderDraft {
   }
 
   func request(asset: Asset, trade: TradeDraft) -> ExecutionQuoteRequest {
-    let swap = SwapQuoteInput(asset: asset, draft: trade)
-    return ExecutionQuoteRequest(
-      provider: nil, side: swap.side,
+    ExecutionQuoteRequest(
+      provider: nil, side: trade.side.rawValue.lowercased(),
       input: .init(
         chain: asset.chainID,
         address: trade.side == .buy ? asset.settlement?.address ?? "" : asset.id),
       output: .init(
         chain: asset.chainID,
         address: trade.side == .buy ? asset.id : asset.settlement?.address ?? ""),
-      amount: swap.amount, orderType: .limit, slippageBps: swap.slippageBps,
+      amount: trade.quoteAmount, orderType: .limit, slippageBps: trade.slippage.basisPoints,
       limitPriceUsd: price == nil ? nil : priceText,
       context: .init(sender: nil, recipient: nil))
   }

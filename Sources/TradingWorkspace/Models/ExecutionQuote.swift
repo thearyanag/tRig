@@ -44,19 +44,13 @@ struct ExecutionQuoteRequest: Codable, Hashable, Sendable {
   var context: ExecutionQuoteContext
   var isValid: Bool {
     guard input != output, !input.chain.isEmpty, !output.chain.isEmpty,
-      !input.address.isEmpty, !output.address.isEmpty, Self.positive(amount),
+      !input.address.isEmpty, !output.address.isEmpty, QuoteAmount.isPositive(amount),
       (1...500).contains(slippageBps)
     else { return false }
     if orderType != .market && input.chain != output.chain { return false }
     if orderType == .stopLoss && side == "buy" { return false }
     return orderType == .market
-      || Self.positive(orderType == .limit ? limitPriceUsd ?? "" : triggerPriceUsd ?? "")
-  }
-  static func positive(_ text: String) -> Bool {
-    let pieces = text.split(separator: ".", omittingEmptySubsequences: false)
-    let digits = text.filter { $0 != "." }
-    return !text.isEmpty && text.count <= 300 && pieces.count <= 2 && !digits.isEmpty
-      && digits.allSatisfy { $0.isASCII && $0.isNumber } && digits.contains { $0 != "0" }
+      || QuoteAmount.isPositive(orderType == .limit ? limitPriceUsd ?? "" : triggerPriceUsd ?? "")
   }
 }
 struct ExecutionToken: Decodable, Sendable {

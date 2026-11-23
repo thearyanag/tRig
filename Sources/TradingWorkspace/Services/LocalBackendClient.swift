@@ -16,18 +16,7 @@ struct LocalBackendClient {
   private static func request(_ path: String, query: [URLQueryItem], body: Data?) async throws
     -> Data
   {
-    let backend = ChartBackend.shared
-    backend.start()
-    var base = backend.baseURL
-    for _ in 0..<150 where base == nil {
-      try Task.checkCancellation()
-      if let error = backend.error { throw RequestError(message: error) }
-      try await Task.sleep(for: .milliseconds(100))
-      base = backend.baseURL
-    }
-    guard let base else {
-      throw RequestError(message: "The local service is not ready. Try again.")
-    }
+    let base = try await LocalDataService.shared.readyURL()
     var url = URLComponents(url: base.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
     url.queryItems = query
     var request = URLRequest(

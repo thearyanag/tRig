@@ -25,7 +25,7 @@ struct ExitLegDraft {
       output: .init(chain: asset.chainID, address: asset.settlement?.address ?? ""),
       amount: quantityText.trimmingCharacters(in: .whitespacesAndNewlines),
       orderType: kind == .takeProfit ? .limit : .stopLoss,
-      slippageBps: SwapQuoteInput(asset: asset, draft: TradeDraft(slippage: slippage)).slippageBps,
+      slippageBps: slippage.basisPoints,
       limitPriceUsd: kind == .takeProfit && target.price != nil ? target.priceText : nil,
       triggerPriceUsd: kind == .stopLoss && target.price != nil ? target.priceText : nil,
       context: .init(sender: nil, recipient: nil))

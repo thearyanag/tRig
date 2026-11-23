@@ -11,15 +11,7 @@ struct EVMMarketQuoteView: View {
   @State private var store = ExecutionQuoteStore()
   @State private var details = false
   @FocusState private var amountFocused: Bool
-  private var counter: Asset? {
-    counterAsset
-      ?? asset.settlement.map {
-        Asset(
-          id: $0.address, name: $0.name, symbol: $0.symbol, network: asset.network,
-          pool: "", decimals: $0.decimals, priceUsd: nil, imageURL: $0.imageUrl,
-          chainId: asset.chainID)
-      }
-  }
+  private var counter: Asset? { counterAsset ?? asset.settlementAsset }
   private var inputAsset: Asset? { trade.side == .buy ? counter : asset }
   private var outputAsset: Asset? { trade.side == .buy ? asset : counter }
   private var crossChain: Bool { inputAsset?.chainID != outputAsset?.chainID }
@@ -28,8 +20,8 @@ struct EVMMarketQuoteView: View {
       provider: nil, side: trade.side.rawValue.lowercased(),
       input: .init(chain: inputAsset?.chainID ?? "", address: inputAsset?.id ?? ""),
       output: .init(chain: outputAsset?.chainID ?? "", address: outputAsset?.id ?? ""),
-      amount: trade.amountText.trimmingCharacters(in: .whitespacesAndNewlines), orderType: .market,
-      slippageBps: SwapQuoteInput(asset: asset, draft: trade).slippageBps,
+      amount: trade.quoteAmount, orderType: .market,
+      slippageBps: trade.slippage.basisPoints,
       context: .init(
         sender: sender.isEmpty ? nil : sender, recipient: recipient.isEmpty ? nil : recipient))
   }
@@ -139,7 +131,7 @@ struct EVMMarketQuoteView: View {
       }
     }
     .font(AppTypography.body)
-    .onChange(of: request) { _, value in if store.request != value { store.clear() } }
+    .onChange(of: request) { _, value in store.requestDidChange(value) }
     .onChange(of: request.input.chain) { _, _ in sender = "" }
     .onChange(of: request.output.chain) { _, _ in recipient = "" }
     .onDisappear { store.clear() }

@@ -10,19 +10,11 @@ struct SwapQuoteInput: Hashable, Sendable {
   init(asset: Asset, draft: TradeDraft) {
     assetMint = asset.id
     side = draft.side.rawValue.lowercased()
-    amount = draft.amountText.trimmingCharacters(in: .whitespacesAndNewlines)
-    switch draft.slippage {
-    case .low: slippageBps = 10
-    case .standard: slippageBps = 50
-    case .high: slippageBps = 100
-    }
+    amount = draft.quoteAmount
+    slippageBps = draft.slippage.basisPoints
   }
   var isValid: Bool {
-    let parts = amount.split(separator: ".", omittingEmptySubsequences: false)
-    let digits = amount.filter { $0 != "." }
-    return assetMint != Self.usdc && !amount.isEmpty && amount.count <= 300 && parts.count <= 2
-      && !digits.isEmpty && digits.allSatisfy { $0.isASCII && $0.isNumber }
-      && digits.contains { $0 != "0" }
+    assetMint != Self.usdc && QuoteAmount.isPositive(amount)
   }
 }
 

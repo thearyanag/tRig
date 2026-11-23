@@ -2,9 +2,9 @@ import SwiftUI
 
 struct ExecutionQuoteView: View {
   let asset: Asset
-  let initialOrderType: ExecutionOrderType
   @Environment(\.dismiss) private var dismiss
   @State private var store = ExecutionQuoteStore()
+  @State private var providerStore = ExecutionProviderStore()
   @State private var provider = "auto"
   @State private var quoteSide = "buy"
   @State private var orderType = ExecutionOrderType.market
@@ -14,7 +14,7 @@ struct ExecutionQuoteView: View {
   @State private var toAddress = ""
   @State private var amount = "100"
   @State private var price = ""
-  @State private var slippageBps = 50
+  @State private var slippage = SlippagePreset.standard
   @State private var showAddressContext = false
   @State private var sender = ""
   @State private var recipient = ""
@@ -26,7 +26,6 @@ struct ExecutionQuoteView: View {
     initialAmount: String = "100"
   ) {
     self.asset = asset
-    self.initialOrderType = initialOrderType
     let selling = initialOrderType == .stopLoss || initialSide == .sell
     _quoteSide = State(initialValue: selling ? "sell" : "buy")
     _orderType = State(initialValue: initialOrderType)
@@ -36,18 +35,13 @@ struct ExecutionQuoteView: View {
     _fromAddress = State(initialValue: selling ? asset.id : asset.settlement?.address ?? "")
     _toAddress = State(initialValue: selling ? asset.settlement?.address ?? "" : asset.id)
     _amount = State(initialValue: initialAmount)
-    let counter = asset.settlement.map {
-      Asset(
-        id: $0.address, name: $0.name, symbol: $0.symbol, network: asset.network,
-        pool: "", decimals: $0.decimals, priceUsd: nil, imageURL: $0.imageUrl,
-        chainId: asset.chainID)
-    }
+    let counter = asset.settlementAsset
     _fromToken = State(initialValue: selling ? asset : counter)
     _toToken = State(initialValue: selling ? counter : asset)
   }
   private var selectedProvider: ExecutionProvider? { ExecutionProvider(rawValue: provider) }
   private var selectedInfo: ExecutionProviderInfo? {
-    store.providers.first { $0.id == selectedProvider }
+    providerStore.providers.first { $0.id == selectedProvider }
   }
   private var availableOrderTypes: [ExecutionOrderType] {
     selectedInfo?.orderTypes ?? ExecutionOrderType.allCases
@@ -60,14 +54,14 @@ struct ExecutionQuoteView: View {
       output: ExecutionTokenRef(
         chain: toChain, address: toAddress.trimmingCharacters(in: .whitespacesAndNewlines)),
       amount: amount.trimmingCharacters(in: .whitespacesAndNewlines), orderType: orderType,
-      slippageBps: slippageBps,
+      slippageBps: slippage.basisPoints,
       limitPriceUsd: orderType == .limit ? price : nil,
       triggerPriceUsd: orderType == .stopLoss ? price : nil,
       context: ExecutionQuoteContext(
         sender: sender.isEmpty ? nil : sender, recipient: recipient.isEmpty ? nil : recipient))
   }
   private var chains: [ExecutionChain] {
-    let infos = selectedInfo.map { [$0] } ?? store.providers
+    let infos = selectedInfo.map { [$0] } ?? providerStore.providers
     var unique: [String: ExecutionChain] = [:]
     for chain in infos.flatMap(\.chains) where chain.enabled {
       if selectedProvider == nil && chain.id.hasPrefix("flash:") { continue }
@@ -90,7 +84,7 @@ struct ExecutionQuoteView: View {
             Picker("Route", selection: $provider) {
               Text("Automatic").tag("auto")
               ForEach(ExecutionProvider.allCases) { value in
-                let info = store.providers.first { $0.id == value }
+                let info = providerStore.providers.first { $0.id == value }
                 Text(value.name + (info?.configured == false ? " · Not configured" : "")).tag(
                   value.rawValue)
               }
@@ -125,10 +119,8 @@ struct ExecutionQuoteView: View {
                 ).foregroundStyle(.orange)
               }
             }
-            Picker("Slippage", selection: $slippageBps) {
-              Text("0.1%").tag(10)
-              Text("0.5%").tag(50)
-              Text("1%").tag(100)
+            Picker("Slippage", selection: $slippage) {
+              ForEach(SlippagePreset.allCases) { Text($0.rawValue).tag($0) }
             }.pickerStyle(.segmented)
             DisclosureGroup("Address context", isExpanded: $showAddressContext) {
               VStack(alignment: .leading, spacing: 10) {
@@ -143,11 +135,11 @@ struct ExecutionQuoteView: View {
                 ).foregroundStyle(.secondary)
               }.padding(.top, 8)
             }
-            if store.isLoadingProviders { ProgressView().controlSize(.small) }
-            if let error = store.providerError {
+            if providerStore.isLoading { ProgressView().controlSize(.small) }
+            if let error = providerStore.error {
               Text(error).font(AppTypography.caption).foregroundStyle(.orange)
             }
-            Button("Refresh available routes") { Task { await store.loadProviders() } }.font(
+            Button("Refresh available routes") { Task { await providerStore.load() } }.font(
               AppTypography.caption
             ).buttonStyle(.plain).foregroundStyle(.blue)
           }.padding(20)
@@ -221,8 +213,8 @@ struct ExecutionQuoteView: View {
     }
     .frame(width: 780, height: 670).background(TerminalStyle.canvas).preferredColorScheme(.dark)
     .font(AppTypography.body)
-    .task { await store.loadProviders() }
-    .onChange(of: request) { _, value in if store.request != value { store.clear() } }
+    .task { await providerStore.load() }
+    .onChange(of: request) { _, value in store.requestDidChange(value) }
     .onChange(of: availableOrderTypes) { _, values in
       if !values.contains(orderType) { orderType = values.first ?? .market }
     }

@@ -11,13 +11,14 @@ enum SlippagePreset: String, CaseIterable, Identifiable, Sendable {
   case standard = "0.5%"
   case high = "1%"
   var id: Self { self }
-  var fraction: Decimal {
+  var basisPoints: Int {
     switch self {
-    case .low: Decimal(string: "0.001")!
-    case .standard: Decimal(string: "0.005")!
-    case .high: Decimal(string: "0.01")!
+    case .low: 10
+    case .standard: 50
+    case .high: 100
     }
   }
+  var fraction: Decimal { Decimal(basisPoints) / 10_000 }
 }
 
 enum TradeInputError: String, Error, Equatable {
@@ -44,6 +45,7 @@ struct TradeDraft {
   var side: TradeSide = .buy
   var amountText = "100"
   var slippage: SlippagePreset = .standard
+  var quoteAmount: String { amountText.trimmingCharacters(in: .whitespacesAndNewlines) }
 
   func preview(asset: Asset, market: SampleMarket) -> Result<TradePreview, TradeInputError> {
     let text = amountText.trimmingCharacters(in: .whitespacesAndNewlines)

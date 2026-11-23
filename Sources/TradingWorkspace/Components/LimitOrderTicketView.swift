@@ -108,7 +108,7 @@ struct LimitOrderTicketView: View {
       }
     }
     .font(AppTypography.body)
-    .onChange(of: request) { _, value in if store.request != value { store.clear() } }
+    .onChange(of: request) { _, value in store.requestDidChange(value) }
     .onDisappear { store.clear() }
   }
 
@@ -174,7 +174,7 @@ struct LimitOrderTicketView: View {
   private var localReceive: String {
     guard asset.settlement?.symbol == "USDC", limit.price != nil,
       let price = Decimal(string: limit.priceText), price > 0,
-      ExecutionQuoteRequest.positive(request.amount), let amount = Decimal(string: request.amount)
+      QuoteAmount.isPositive(request.amount), let amount = Decimal(string: request.amount)
     else { return "—" }
     let value = trade.side == .buy ? amount / price : amount * price
     guard !value.isNaN else { return "—" }

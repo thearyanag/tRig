@@ -5,7 +5,7 @@ import Testing
 
 @Test func inlineLimitRetainsTradingContextAndBuildsServerRoutedQuotes() {
   var limit = LimitOrderDraft()
-  var trade = TradeDraft()
+  var trade = TradeDraft(amountText: " 100 ", slippage: .high)
   limit.setEnabled(true, reference: 0.4, side: .buy)
   #expect(limit.price == 0.38)
   let buy = limit.request(asset: .backpack, trade: trade)
@@ -13,6 +13,7 @@ import Testing
   #expect(buy.input.address == SwapQuoteInput.usdc)
   #expect(buy.output.address == Asset.backpack.id)
   #expect(buy.amount == "100" && buy.limitPriceUsd == "0.38")
+  #expect(buy.slippageBps == 100)
   trade.selectQuoteSide(.sell)
   #expect(!limit.request(asset: .backpack, trade: trade).isValid)
   trade.amountText = "10"

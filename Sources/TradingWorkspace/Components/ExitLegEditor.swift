@@ -66,7 +66,7 @@ struct ExitLegEditor: View {
           )
           .font(AppTypography.caption).foregroundStyle(.secondary).monospacedDigit()
         }
-        if !leg.quantityText.isEmpty && !ExecutionQuoteRequest.positive(request.amount) {
+        if !leg.quantityText.isEmpty && !QuoteAmount.isPositive(request.amount) {
           Text("Enter a positive \(asset.symbol) quantity.").font(AppTypography.caption)
             .foregroundStyle(.orange)
         }
@@ -124,7 +124,7 @@ struct ExitLegEditor: View {
     .overlay {
       RoundedRectangle(cornerRadius: TerminalStyle.controlRadius).strokeBorder(tint.opacity(0.3))
     }
-    .onChange(of: request) { _, value in if store.request != value { store.clear() } }
+    .onChange(of: request) { _, value in store.requestDidChange(value) }
     .onChange(of: validation) { _, _ in store.clear() }
     .onChange(of: leg.target.isEnabled) { _, _ in store.clear() }
   }

@@ -8,11 +8,6 @@ import Foundation
   func quote(_ request: ExecutionQuoteRequest) async throws -> ExecutionQuote {
     let data = try await LocalBackendClient.post(
       "api/quotes/quote", body: JSONEncoder().encode(request))
-    let result = try JSONDecoder().decode(ExecutionQuote.self, from: data)
-    guard result.matches(request) else {
-      throw LocalBackendClient.RequestError(
-        message: "Quote identity could not be confirmed. Refresh to try again.")
-    }
-    return result
+    return try JSONDecoder().decode(ExecutionQuote.self, from: data)
   }
 }

@@ -5,7 +5,7 @@ struct ChartPanelView: View {
   var draftLines: [ChartLimitLine] = []
   var onDraftPriceChange: (String, Double?, String) -> Void = { _, _, _ in }
   var onPriceChange: (Double) -> Void = { _ in }
-  @State private var backend = ChartBackend.shared
+  @State private var backend = LocalDataService.shared
   @State private var status = ChartStatus()
   @State private var reloadID = UUID()
   @Environment(\.scenePhase) private var scenePhase

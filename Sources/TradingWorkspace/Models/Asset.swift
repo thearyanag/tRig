@@ -33,6 +33,13 @@ struct Asset: Identifiable, Hashable, Codable, Sendable {
     if isSolana { return .usdc }
     return quoteToken
   }
+  var settlementAsset: Asset? {
+    settlement.map {
+      Asset(
+        id: $0.address, name: $0.name, symbol: $0.symbol, network: network,
+        pool: "", decimals: $0.decimals, priceUsd: nil, imageURL: $0.imageUrl, chainId: chainID)
+    }
+  }
   var explorer: URL? {
     guard let raw = explorerUrl ?? (isSolana ? "https://solscan.io" : nil),
       let url = URL(string: raw), url.scheme == "https"
@@ -65,8 +72,6 @@ struct Asset: Identifiable, Hashable, Codable, Sendable {
     return chain.hasPrefix("eip155:") && UInt64(chain.dropFirst(7)).map { $0 > 0 } == true
       && value.count == 42 && value.hasPrefix("0x") && value.dropFirst(2).allSatisfy(\.isHexDigit)
   }
-  var systemImage: String { id == Self.backpack.id ? "backpack.fill" : "circle.hexagongrid.fill" }
-
   // Resolve the current SOL market on first open rather than seeding an old pool or price.
   static let solana = Asset(
     id: "So11111111111111111111111111111111111111112",
