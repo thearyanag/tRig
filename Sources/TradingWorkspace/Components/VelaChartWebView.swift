@@ -1,7 +1,7 @@
 import SwiftUI
 import WebKit
 
-struct TradingViewWebView: NSViewRepresentable {
+struct VelaChartWebView: NSViewRepresentable {
   let baseURL: URL
   let asset: Asset
   let status: ChartStatus
@@ -33,13 +33,15 @@ struct TradingViewWebView: NSViewRepresentable {
       URLQueryItem(name: "theme", value: colorScheme == .dark ? "dark" : "light"),
       URLQueryItem(name: "mint", value: asset.id), URLQueryItem(name: "pool", value: asset.pool),
       URLQueryItem(name: "chain", value: asset.chainID),
+      URLQueryItem(name: "network", value: asset.network),
       URLQueryItem(name: "symbol", value: asset.symbol),
       URLQueryItem(name: "name", value: asset.name),
       URLQueryItem(name: "price", value: asset.priceUsd.map { String($0) } ?? ""),
     ]
     let target = url.url!
-    if context.coordinator.loadedURL != target || context.coordinator.reloadID != reloadID {
-      context.coordinator.loadedURL = target
+    let identity = Coordinator.chartIdentity(target)
+    if context.coordinator.loadedURL != identity || context.coordinator.reloadID != reloadID {
+      context.coordinator.loadedURL = identity
       context.coordinator.reloadID = reloadID
       context.coordinator.isActive = isActive
       status.phase = "loading"
@@ -49,7 +51,7 @@ struct TradingViewWebView: NSViewRepresentable {
       context.coordinator.isActive = isActive
       view.evaluateJavaScript("window.chartHost?.setActive(\(isActive ? "true" : "false"))")
     }
-    if lineChanged { context.coordinator.sendLimitLine(to: view) }
+    if lineChanged { context.coordinator.sendDraftLines(to: view) }
   }
 
   static func dismantleNSView(_ view: WKWebView, coordinator: Coordinator) {
@@ -69,10 +71,19 @@ struct TradingViewWebView: NSViewRepresentable {
     var onDraftPriceChange: (String, Double?, String) -> Void = { _, _, _ in }
     init(status: ChartStatus) { self.status = status }
 
+    static func chartIdentity(_ url: URL) -> URL {
+      var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+      // The reference price formats the initial chart. Live prices only update the ticket.
+      components?.queryItems?.removeAll { $0.name == "price" }
+      return components?.url ?? url
+    }
+
     func userContentController(
       _ controller: WKUserContentController, didReceive message: WKScriptMessage
     ) {
-      guard message.frameInfo.isMainFrame else { return }
+      guard message.frameInfo.isMainFrame, let source = message.frameInfo.request.url,
+        Self.chartIdentity(source) == loadedURL
+      else { return }
       if message.name == "limitDraft" {
         guard let value = message.body as? [String: Any], let id = value["id"] as? String,
           let line = draftLines.first(where: { $0.id == id }),
@@ -84,19 +95,19 @@ struct TradingViewWebView: NSViewRepresentable {
         } else if let price = value["price"] as? Double, price.isFinite, price > 0 {
           onDraftPriceChange(id, price, line.revision)
         }
-      } else {
+      } else if message.name == "chartStatus" {
         status.receive(message.body)
       }
     }
-    func sendLimitLine(to view: WKWebView) {
+    func sendDraftLines(to view: WKWebView) {
       guard let data = try? JSONEncoder().encode(draftLines),
         let json = String(data: data, encoding: .utf8)
       else { return }
-      view.evaluateJavaScript("window.chartHost?.setLimitDraft(\(json))")
+      view.evaluateJavaScript("window.chartHost?.setDraftLines(\(json))")
     }
     func webView(_ view: WKWebView, didFinish navigation: WKNavigation!) {
       view.evaluateJavaScript("window.chartHost?.setActive(\(isActive ? "true" : "false"))")
-      sendLimitLine(to: view)
+      sendDraftLines(to: view)
     }
     func webView(
       _ view: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!,

@@ -10,7 +10,7 @@ cancellation and submission endpoints are not mounted.
 In the Markets ticket, **Cross-chain & advanced quotes…** opens the quote-route
 composer. **Limit** changes the main ticket in place, retaining the selected
 asset, side and amount. Its target price is synchronized with a draggable,
-unsaved TradingView draft line; its inline quote uses automatic server routing.
+unsaved Vela draft line; its inline quote uses automatic server routing.
 **TP/SL** selects Sell and opens two inline exit editors with independent token
 quantities, target prices, enable toggles and quote results. Both draft lines are
 visible together. No linked-order or OCO behavior is implied by these previews.
@@ -173,13 +173,12 @@ price shortcuts. These are editable draft defaults, not trading recommendations.
 Current price updates never move an already entered target. Changing side clears
 the spend quantity because its units change and initializes a new target.
 
-`LimitOrderDraft` is window-owned and shared with the chart. The Advanced Charts
-Drawings API provides an unsaved horizontal drawing labelled “Draft buy/sell
-limit · not placed”. No Trading Platform broker API is used. Native edits move
-the existing drawing; dragging updates the numeric price. Messages must match
-the current mint and draft revision. Disabling Limit removes the drawing;
-deleting it clears the price and invalidates preview. Chart Undo cannot restore
-a detached old draft. Unrelated drawings are left alone.
+`LimitOrderDraft` is window-owned and shared with the chart. Vela displays an
+unsaved horizontal drawing labeled “Draft buy/sell limit · not placed”.
+Native edits move the drawing and Vela's committed drawing edits update the
+numeric price. Messages must match the current mint and draft revision.
+Disabling Limit removes the drawing. Deleting it clears the price and invalidates
+the preview.
 
 The ticket distinguishes a local, fee-free calculation at the target from the
 backend's returned quote. Provider fees/warnings and slippage are in Quote details.
@@ -196,7 +195,7 @@ window capture is `artifacts/inline-limit-2026-11-20/inline-limit.png`.
 asynchronous drawing creation/disposal and Undo regressions. Canonical build and
 launch passed. This change does not add signing or order submission.
 
-### Drag offset correction
+### Historical TradingView drag offset correction
 
 Live tracing identified a transient TradingView point value during `move` and
 `points_changed`: for a short drag from 0.21487, `mouse_up` saw 0.22809756,

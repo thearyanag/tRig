@@ -1,14 +1,14 @@
 # Trading Workspace
 
 A native SwiftUI macOS trading workspace. Requires Xcode with Swift 6.2,
-Rust/Cargo, and macOS 14 or newer. Open `Package.swift` in Xcode to
+Rust/Cargo, Node.js with npm, and macOS 14 or newer. Open `Package.swift` in Xcode to
 edit the sources and use SwiftUI previews.
 
 ## Run
 
 The interface uses bundled Allo v1.0.3 by Josh Puckett. Native text uses its
 Regular, Medium, Semibold and Bold faces at the existing macOS type sizes;
-TradingView uses the local variable webfont. Prices retain tabular digits.
+The Vela chart host uses the local variable webfont. Prices retain tabular digits.
 Font files and the SIL Open Font License are in
 `Sources/TradingWorkspace/Resources/Fonts/`. No system font installation or
 runtime font download is required.
@@ -17,7 +17,7 @@ runtime font download is required.
 ./script/build_and_run.sh
 ```
 
-The script builds Swift and Rust, stages `dist/TradingWorkspace.app`, and launches
+The script builds Swift, Rust, and the pinned Vela chart host, stages `dist/TradingWorkspace.app`, and launches
 the app as a macOS bundle. The Codex Run action uses this same entrypoint.
 Optional flags: `--verify`, `--debug`, `--logs`, `--telemetry`.
 
@@ -29,13 +29,14 @@ Optional flags: `--verify`, `--debug`, `--logs`, `--telemetry`.
 - `Sources/TradingWorkspace/Views`: trading shell and component gallery.
 - `Sources/TradingWorkspace/Services`: Rust sidecar lifecycle and local discovery client.
 - `Sources/TradingWorkspace/Stores`: shared selection, persisted watchlist and app-wide portfolio state.
-- `Sources/TradingWorkspace/Resources/Chart`: TradingView HTML/JavaScript host.
+- `Sources/TradingWorkspace/Resources/Chart`: Vela HTML/JavaScript host.
+- `chart-host`: Pinned chart dependencies and the app-bundle build.
 - `backend/trading-data`: local Rust candle service and provider cache.
-- `vendor/tradingview/charting_library`: Advanced Charts v30.3.0 assets.
 
-TradingView runs inside a WKWebView. The bundled Rust service discovers Solana
-assets, chooses a liquid active chart route automatically, and fetches keyless
-GeckoTerminal candles. Charts and the header use the selected asset's USD data.
+Vela 0.9.0 runs inside a WKWebView. Chart resources are served by the local Rust
+service, which fetches USD candles for the selected Solana or EVM market. The
+app bundle includes dependency licenses and Vela's NOTICE. The chart status bar
+links to Vela for visible attribution. No proprietary chart download is required.
 Pool routing is internal and has no user-facing selector. Provider names remain
 internal; the asset header and chart footer show asset identity and update status.
 
@@ -75,7 +76,7 @@ USD captions use the displayed reference market price and are approximate.
 The main ticket keeps its Jupiter market quote path. **Cross-chain & advanced
 quotes…** opens the shared route composer for Jupiter, Relay and Definitive Flash;
 **Limit** changes the ticket in place and adds a draggable draft-price line to
-TradingView. Native price entry and chart dragging share the same draft; inline
+Vela. Native price entry and chart dragging share the same draft; inline
 previews use the server's conditional quote route. **TP/SL** selects the Sell
 ticket's inline exit previews: separate target prices and token quantities, two
 draggable chart lines, and individual quote results. Each exit can be disabled.

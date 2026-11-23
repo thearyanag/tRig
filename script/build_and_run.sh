@@ -19,6 +19,8 @@ case "$MODE" in
 esac
 
 cd "$ROOT_DIR"
+npm ci --prefix "$ROOT_DIR/chart-host" --no-audit --no-fund --prefer-offline
+npm run --prefix "$ROOT_DIR/chart-host" build
 pkill -x "$APP_NAME" >/dev/null 2>&1 || true
 swift build --product "$APP_NAME"
 BUILD_BINARY="$(swift build --show-bin-path)/$APP_NAME"
@@ -34,17 +36,11 @@ mkdir -p "$APP_BUNDLE/Contents/Resources/Fonts"
 rsync -a --delete "$ROOT_DIR/Sources/TradingWorkspace/Resources/Fonts/" "$APP_BUNDLE/Contents/Resources/Fonts/"
 mkdir -p "$APP_BUNDLE/Contents/Resources/Onboarding"
 rsync -a --delete "$ROOT_DIR/Sources/TradingWorkspace/Resources/Onboarding/" "$APP_BUNDLE/Contents/Resources/Onboarding/"
-mkdir -p "$APP_BUNDLE/Contents/Helpers" "$APP_BUNDLE/Contents/Resources/Chart/charting_library"
+mkdir -p "$APP_BUNDLE/Contents/Helpers" "$APP_BUNDLE/Contents/Resources/Chart"
 cp "$ROOT_DIR/backend/trading-data/target/debug/trading-data-service" "$APP_BUNDLE/Contents/Helpers/trading-data-service.new"
 mv -f "$APP_BUNDLE/Contents/Helpers/trading-data-service.new" "$APP_BUNDLE/Contents/Helpers/trading-data-service"
 chmod +x "$APP_BUNDLE/Contents/Helpers/trading-data-service"
-cp "$ROOT_DIR/Sources/TradingWorkspace/Resources/Chart/"*.html "$APP_BUNDLE/Contents/Resources/Chart/"
-cp "$ROOT_DIR/Sources/TradingWorkspace/Resources/Chart/"*.js "$APP_BUNDLE/Contents/Resources/Chart/"
-cp "$ROOT_DIR/Sources/TradingWorkspace/Resources/Chart/"*.css "$APP_BUNDLE/Contents/Resources/Chart/"
-rsync -a --delete "$ROOT_DIR/vendor/tradingview/charting_library/" "$APP_BUNDLE/Contents/Resources/Chart/charting_library/"
-mkdir -p "$APP_BUNDLE/Contents/Resources/Chart/fonts"
-cp "$ROOT_DIR/Sources/TradingWorkspace/Resources/Fonts/AlloVariable.woff2" "$APP_BUNDLE/Contents/Resources/Chart/fonts/"
-cp "$ROOT_DIR/Sources/TradingWorkspace/Resources/Fonts/OFL.txt" "$APP_BUNDLE/Contents/Resources/Chart/fonts/"
+rsync -a --delete "$ROOT_DIR/.build/chart-host/" "$APP_BUNDLE/Contents/Resources/Chart/"
 
 TDLIB_BUILD="$ROOT_DIR/.build/telegram/tdlib-$(uname -m)"
 if [[ -f "$TDLIB_BUILD/libtdjson.dylib" && -f "$TDLIB_BUILD/bundled-revision" ]]; then

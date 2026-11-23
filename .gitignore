@@ -4,3 +4,4 @@
 /.swiftpm/
 /dist/
 /backend/trading-data/target/
+/chart-host/node_modules/

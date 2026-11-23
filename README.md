@@ -71,46 +71,28 @@ Actions should make the account, destination, and outcome clear. Trading and wal
 
 ## Development status
 
-The first macOS prototype is in [`apps/macos`](apps/macos). It includes:
+The macOS prototype includes:
 
 - A native workbench with asset search, a persistent watchlist, and a shared asset selection.
 - Bundled Vela charts backed by a local Rust market-data service.
-- Separate, persistent Pump and Fomo website sessions.
-- Native profile and social-content reads.
-- Reviewed callout and thesis publishing to Pump and Fomo.
-- A ChatGPT-connected assistant with streaming responses, optional post attachments, and draft handoff.
+- Read-only Pump and Fomo portfolios backed by separate local website sessions.
+- Read-only Telegram discussion tied to the contract currently open in Markets.
+- Market, limit, and TP/SL quote previews.
 
-These flows have been exercised locally. They are an early prototype, not the complete workbench described above. Pump and Fomo integrations currently use their website endpoints, which can change.
-
-Telegram connectivity has been prototyped separately through TDLib and is not included in this initial code drop. The next step is bringing the integrations into a shared workspace with a common connector and assistant-tool architecture.
+Pump and Fomo integrations use website endpoints, which can change. The research assistant and order execution are planned.
 
 ## Run the macOS prototype
 
 Requires macOS 14 or later, Xcode 26 / Swift 6.2, Rust/Cargo, and Node.js 22.12+ with npm. Vela is bundled during the build. No third-party Swift packages, proprietary chart library or API key are needed.
 
 ```sh
-cd apps/macos
 swift test
 cargo test --manifest-path backend/trading-data/Cargo.toml --locked
-node --test Tests/ChartHost/chart-datafeed.test.cjs
+node --test Tests/ChartHost/*.test.cjs Tests/ConnectionHost/*.test.cjs
 ./script/build_and_run.sh
 ```
 
-The script builds and locally signs `dist/tRig.app`. Sign in to Pump or Fomo through the app’s website view. Use **Continue with ChatGPT** in the assistant sidebar to connect an eligible ChatGPT plan.
-
-See the [macOS development guide](apps/macos/README.md) for setup, architecture, and current limitations.
-
-## Compare chart engines locally
-
-[`apps/chart-compare`](apps/chart-compare) is a small browser experiment comparing Vela with TradingView Advanced Charts on shared candle snapshots. It includes replay, a 10,000-bar synthetic fixture, and independent indicator and drawing tools.
-
-```sh
-cd apps/chart-compare
-npm ci
-npm run dev
-```
-
-Open `http://127.0.0.1:5174`. The comparison’s TradingView pane requires a separately installed authorized local library; the macOS app uses bundled Vela. See the [comparison guide](apps/chart-compare/README.md) for setup and test boundaries.
+The script assembles and launches `dist/TradingWorkspace.app`. Use **Settings** to connect accounts. See the [macOS development guide](docs/trading-workspace.md) and [Telegram setup](docs/telegram-discussion.md) for configuration.
 
 ## Local app, explicit connections
 

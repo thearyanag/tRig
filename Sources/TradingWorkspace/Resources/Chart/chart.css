@@ -1,4 +1,26 @@
 @import url("chart-font.css");
-html, body, #chart { width: 100%; height: 100%; margin: 0; overflow: hidden; }
-html { background: #13191e; color-scheme: dark; font-family: "Allo", -apple-system, sans-serif; }
-html.light { background: #ffffff; color-scheme: light; }
+html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+html { background: #13191e; color: #d5d9e0; color-scheme: dark; font-family: "Allo", -apple-system, sans-serif; }
+html.light { background: #fff; color: #283344; color-scheme: light; }
+#chart { position: absolute; inset: 36px 0 0; }
+#controls {
+  box-sizing: border-box;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid #29333c;
+  font-size: 12px;
+}
+#controls label:not(:first-child) { margin-left: 8px; }
+#controls select {
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 1px solid #565b65;
+  border-radius: 4px;
+  padding: 2px 6px;
+}
+#controls select:focus-visible { outline: 2px solid #6aaaff; outline-offset: 2px; }
+.light #controls { border-bottom-color: #e1e5eb; }

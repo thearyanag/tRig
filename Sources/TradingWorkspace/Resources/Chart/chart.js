@@ -1,180 +1,101 @@
-(() => {
-  "use strict";
-  const resolutions = ["1", "5", "15", "60", "240", "720", "1D"];
-  const settings = new URLSearchParams(location.search);
-  const mint = settings.get("mint") || "BPxxfRCXkUVhig4HS1Lh7kZqV6SPJhzfEk4x6fVBjPCy";
-  const chain = settings.get("chain") || "solana";
-  const pool = settings.get("pool") || "6qz7THwQvcjF3HyDGLuKaLBUk6EyJKeZXZMWLAeiwfjd";
-  const assetSymbol = settings.get("symbol") || "BP";
-  const assetName = settings.get("name") || "Backpack";
-  document.title = `${assetSymbol} chart`;
-  const symbol = `${assetSymbol}/USD`;
-  const referencePrice = Number(settings.get("price"));
-  const priceDigits = referencePrice > 0 ? Math.min(12, Math.max(2, 4 - Math.floor(Math.log10(referencePrice)))) : 6;
-  const subscriptions = new Map();
-  const controllers = new Set();
-  const historyTimes = new Map();
-  let active = true;
-  let disposed = false;
-  let lastQuoteFetch = 0;
-  let limitController;
-  let pendingLimit = [];
-  const theme = new URLSearchParams(location.search).get("theme") === "light" ? "Light" : "Dark";
-  document.documentElement.classList.toggle("light", theme === "Light");
+import { VelaWorkspace } from '@luxalgo/vela/workspace';
+import { registerRendererDefaults } from '@luxalgo/vela';
+import { createMarketFeed, resolutions } from './datafeed.mjs';
+import { createDraftLinesController } from './draft-lines.mjs';
 
-  function report(phase, message, extra = {}) {
-    window.webkit?.messageHandlers?.chartStatus?.postMessage({ phase, message, ...extra });
-  }
-
-  async function requestBars(resolution, limit, before) {
-    const controller = new AbortController();
-    controllers.add(controller);
-    const timeout = setTimeout(() => controller.abort(), 90000);
-    const params = new URLSearchParams({ resolution, limit: String(limit), mint, pool, chain });
-    if (before !== undefined) params.set("before", String(before));
+const settings = new URLSearchParams(location.search);
+const referencePrice = Number(settings.get('price'));
+const initialBars = 300;
+const asset = {
+  mint: settings.get('mint'), pool: settings.get('pool'), chain: settings.get('chain') || 'solana',
+  symbol: settings.get('symbol') || 'Asset', name: settings.get('name') || 'Asset',
+  priceDigits: referencePrice > 0 ? Math.min(12, Math.max(2, 4 - Math.floor(Math.log10(referencePrice)))) : 6,
+};
+// This provider is scoped to one immutable mint/pool; the ticker is display-only.
+asset.ticker = asset.symbol.replace(/[^a-zA-Z0-9._-]/g, '').slice(0, 24) || 'ASSET';
+const venue = settings.get('network')?.toLowerCase().replace(/[^a-z0-9-]/g, '')
+  || (asset.chain === 'solana' ? 'solana' : 'market');
+const theme = settings.get('theme') === 'light' ? 'light' : 'dark';
+document.documentElement.classList.toggle('light', theme === 'light');
+document.title = `${asset.symbol} chart`;
+const report = (phase, message, extra = {}) => window.webkit?.messageHandlers?.chartStatus?.postMessage({ phase, message, ...extra });
+let workspace;
+let draftLines;
+let pendingDrafts = [];
+let disposed = false;
+let appActive = true;
+let extending = false;
+const feed = createMarketFeed({ asset, report, currentResolution: () => workspace?.chart.market.timeframe || '1D' });
+function updateActivity() {
+  const visible = appActive && !document.hidden;
+  feed.setActive(visible);
+  if (visible && workspace && !disposed) requestAnimationFrame(() => workspace?.chart.resize());
+}
+window.chartHost = {
+  setActive(value) { appActive = value; updateActivity(); },
+  setDraftLines(lines) {
+    pendingDrafts = lines;
+    draftLines?.set(lines);
+  },
+  dispose() {
+    if (disposed) return;
+    disposed = true;
+    feed.dispose();
+    draftLines?.dispose();
+    workspace?.destroy();
+    document.removeEventListener('visibilitychange', updateActivity);
+  },
+};
+document.addEventListener('visibilitychange', updateActivity);
+try {
+  if (!asset.mint || !asset.pool) throw new Error('Choose an asset through native search.');
+  // The native chart status bar supplies the visible, linked attribution.
+  // Keep Vela's own mark when this host is opened without the native shell.
+  if (window.webkit?.messageHandlers?.chartStatus) registerRendererDefaults({ attribution: false });
+  workspace = new VelaWorkspace('#chart', {
+    layout: false, symbol: `${venue}:${asset.ticker}`, timeframe: '1D', bars: initialBars,
+    providers: { [venue]: () => feed.provider }, live: true, theme, timezone: 'Etc/UTC',
+    timeframes: resolutions, persist: false, layoutMode: 'desktop',
+    // Native search owns identity. Range presets can select unsupported intervals,
+    // so the topbar exposes only the service's explicit timeframe list.
+    topbar: { left: ['indicators', 'undo-redo'], right: ['panels', 'screenshot'] },
+    bottombar: false, drawings: true, volume: true,
+  });
+  const chart = workspace.chart;
+  draftLines = createDraftLinesController(chart, asset.mint, value => {
+    window.webkit?.messageHandlers?.limitDraft?.postMessage(value);
+  });
+  draftLines.set(pendingDrafts);
+  chart.on('load:end', () => draftLines.set(pendingDrafts));
+  chart.on('data:unresolved', () => report('error', 'Choose an asset through native search.'));
+  chart.on('indicator:error', ({ error }) => report('error', `Indicator: ${error.message}`));
+  chart.on('viewport:changed', async ({ from }) => {
+    const { timeframe, bars } = chart.market;
+    if (disposed || !appActive || document.hidden || extending || !feed.shouldLoadOlder(timeframe, from)) return;
+    extending = true;
     try {
-      const response = await fetch(`/api/chart/bars?${params}`, { signal: controller.signal, cache: "no-store" });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || `Chart request failed (${response.status})`);
-      if (payload.mint !== mint || payload.pool !== pool || (payload.chain || "solana") !== chain) throw new Error("Chart asset identity mismatch");
-      if (!Array.isArray(payload.bars)) throw new Error("Candle response is invalid");
-      return payload;
+      await chart.setMarket({ bars: (bars ?? initialBars) + initialBars });
+      await chart.historyComplete();
+    } catch (error) {
+      if (!disposed) report('error', error.message);
     } finally {
-      clearTimeout(timeout);
-      controllers.delete(controller);
+      extending = false;
     }
-  }
-
-  function publishQuote(payload, resolution) {
-    const latest = payload.bars.at(-1);
-    if (latest && payload.fetched_at >= lastQuoteFetch && widget?.activeChart().resolution() === resolution) {
-      lastQuoteFetch = payload.fetched_at;
-      report("ready", "Chart updated", { lastClose: latest.close, fetchedAt: payload.fetched_at, candleTime: latest.time });
-    }
-  }
-
-  const datafeed = {
-    onReady(callback) {
-      setTimeout(() => callback({ supported_resolutions: resolutions, supports_time: false }), 0);
-    },
-    searchSymbols(_query, _exchange, _type, callback) {
-      setTimeout(() => callback([]), 0);
-    },
-    resolveSymbol(name, onResolve, onError) {
-      if (name !== mint && name !== symbol) {
-        setTimeout(() => onError("Open assets through native search"), 0); return;
-      }
-      setTimeout(() => onResolve({
-        name: symbol, ticker: mint, description: assetName,
-        type: "crypto", session: "24x7", timezone: "Etc/UTC", exchange: "",
-        listed_exchange: "", minmov: 1, pricescale: 10 ** priceDigits,
-        has_intraday: true, has_daily: true, has_weekly_and_monthly: false,
-        intraday_multipliers: ["1", "5", "15", "60", "240", "720"], daily_multipliers: ["1"],
-        supported_resolutions: resolutions, volume_precision: 2, data_status: "streaming",
-        format: "price", visible_plots_set: "ohlcv"
-      }), 0);
-    },
-    async getBars(_info, resolution, period, onHistory, onError) {
-      try {
-        report("loading", "Loading candles…");
-        // Latest requests share a cache key. Historical requests preserve their right boundary.
-        const seconds = { "1": 60, "5": 300, "15": 900, "60": 3600, "240": 14400, "720": 43200, "1D": 86400 }[resolution];
-        const nearPresent = period.to >= Date.now() / 1000 - seconds * 2;
-        const before = period.firstDataRequest && nearPresent ? undefined : Math.max(1, Math.floor(period.to) - 1);
-        // 300 covers the available daily window and reuses the resolver's request.
-        const limit = resolution === "1D" && before === undefined
-          ? 300 : Math.min(1000, Math.max(300, period.countBack || 300));
-        const payload = await requestBars(resolution, limit, before);
-        if (disposed) return;
-        const bars = payload.bars.filter(bar => bar.time < period.to * 1000);
-        if (bars.length) historyTimes.set(resolution, Math.max(historyTimes.get(resolution) || 0, bars.at(-1).time));
-        if (period.firstDataRequest && nearPresent) publishQuote(payload, resolution);
-        // This endpoint returns up to the requested number of available bars
-        // within our bounded history. A short page already exhausts that history;
-        // do not make TradingView wait on another rate-limited empty request.
-        onHistory(bars.map(bar => ({ ...bar })), { noData: payload.bars.length < limit });
-        if (!bars.length && period.firstDataRequest) report("empty", "No candles available for this asset.");
-        else if (!period.firstDataRequest) report("ready", "Chart updated");
-      } catch (error) {
-        if (disposed) return;
-        const message = error.name === "AbortError" ? "Candle request timed out. Try again." : error.message;
-        report("error", message);
-        onError(message);
-      }
-    },
-    subscribeBars(_info, resolution, callback, id) {
-      this.unsubscribeBars(id);
-      const subscription = { stopped: false, running: false, lastTime: historyTimes.get(resolution) || 0, timer: null };
-      async function poll() {
-        if (subscription.stopped || subscription.running || disposed || !active || document.hidden) return;
-        subscription.running = true;
-        try {
-          const payload = await requestBars(resolution, 2);
-          if (subscription.stopped || disposed) return;
-          subscription.lastTime = Math.max(subscription.lastTime, historyTimes.get(resolution) || 0);
-          for (const bar of payload.bars) {
-            if (bar.time >= subscription.lastTime) {
-              callback({ ...bar });
-              subscription.lastTime = bar.time;
-            }
-          }
-          publishQuote(payload, resolution);
-        } catch (error) {
-          if (!subscription.stopped && !disposed) report("error", error.name === "AbortError" ? "Candle refresh timed out." : error.message);
-        } finally {
-          subscription.running = false;
-        }
-      }
-      subscription.timer = setInterval(poll, 30000);
-      subscriptions.set(id, subscription);
-      // History provides the first price; wait one refresh interval before polling.
-    },
-    unsubscribeBars(id) {
-      const subscription = subscriptions.get(id);
-      if (subscription) { subscription.stopped = true; clearInterval(subscription.timer); subscriptions.delete(id); }
-    }
-  };
-
-  window.chartHost = {
-    setLimitDraft(value) {
-      pendingLimit = value;
-      limitController?.set(value);
-    },
-    setActive(value) {
-      const resumed = value && !active;
-      active = value;
-      if (resumed && widget) widget.activeChart().resetData();
-    },
-    dispose() {
-      disposed = true;
-      for (const id of subscriptions.keys()) datafeed.unsubscribeBars(id);
-      for (const controller of controllers) controller.abort();
-      limitController?.dispose();
-      widget?.remove();
-    }
-  };
-
-  let widget;
-  try {
-    widget = new TradingView.widget({
-      container: "chart", library_path: "/charting_library/", autosize: true,
-      custom_font_family: "Allo, sans-serif", custom_css_url: "/chart-font.css",
-      symbol: mint, interval: "1D", datafeed, locale: "en", timezone: "Etc/UTC", theme,
-      disabled_features: ["header_symbol_search", "header_quick_search", "symbol_search_hot_key", "header_compare", "header_screenshot", "header_saveload", "use_localstorage_for_settings"],
-      overrides: {
-        "paneProperties.backgroundType": "solid",
-        "paneProperties.background": theme === "Dark" ? "#13191e" : "#ffffff",
-        "paneProperties.vertGridProperties.color": theme === "Dark" ? "#20282f" : "#eeeeee",
-        "paneProperties.horzGridProperties.color": theme === "Dark" ? "#20282f" : "#eeeeee"
-      },
-      loading_screen: { backgroundColor: theme === "Dark" ? "#13191e" : "#ffffff" }
-    });
-    widget.onChartReady?.(() => {
-      if (disposed) return;
-      limitController = window.createDraftLinesController(widget, mint, priceDigits, value => {
-        window.webkit?.messageHandlers?.limitDraft?.postMessage(value);
-      });
-      limitController.set(pendingLimit);
-    });
-  } catch (error) { report("error", `Chart could not start: ${error.message}`); }
-})();
+  });
+  document.getElementById('interval').addEventListener('change', event => {
+    void chart.setMarket({ timeframe: event.target.value, bars: initialBars });
+  });
+  document.getElementById('style').addEventListener('change', event => {
+    workspace.context().setPriceStyle(event.target.value);
+  });
+  updateActivity();
+  chart.ready().then(() => {
+    if (disposed) return;
+    chart.resize();
+    draftLines.set(pendingDrafts);
+  }).catch(error => { if (!disposed) report('error', error.message); });
+} catch (error) {
+  report('error', `Chart could not start: ${error.message}`);
+  const text = document.createElement('p'); text.textContent = error.message;
+  document.getElementById('chart').replaceChildren(text);
+}

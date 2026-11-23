@@ -13,7 +13,7 @@ struct ChartPanelView: View {
   var body: some View {
     VStack(spacing: 0) {
       if let baseURL = backend.baseURL {
-        TradingViewWebView(
+        VelaChartWebView(
           baseURL: baseURL, asset: asset, status: status, isActive: scenePhase != .background,
           reloadID: reloadID, draftLines: draftLines, onDraftPriceChange: onDraftPriceChange
         )
@@ -40,6 +40,10 @@ struct ChartPanelView: View {
         .foregroundStyle(
           status.phase == "error" || backend.error != nil ? Color.orange : Color.secondary)
         Spacer(minLength: 0)
+        if backend.baseURL != nil {
+          Link("Charts by Vela", destination: URL(string: "https://velacharts.dev")!)
+            .foregroundStyle(.secondary)
+        }
         if let fetched = status.fetchedAt {
           Text("Updated \(fetched.formatted(date: .omitted, time: .standard))")
             .foregroundStyle(.secondary)

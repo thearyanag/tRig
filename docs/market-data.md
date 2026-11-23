@@ -98,9 +98,9 @@ X and explorer links are HTTPS URLs.
 Public GeckoTerminal requests share a 7-second gate, 60-second raw response cache
 and 60-second cooldown after a 429. Snapshot/trade caches live for 60 seconds;
 network mappings for one hour and token links for one day. Chart candles retain
-the existing interval-specific cache and bounded free history. Short candle pages
-mark the end of available history so TradingView can render new markets without
-waiting for an additional empty page. Native market
+the existing interval-specific cache and bounded free history. Vela starts with
+the latest candle page and requests older candles as the viewport approaches its
+left edge. A short page marks the end of available history. Native market
 refreshes run every 60 seconds in the active Markets view. Chart polling remains
 30 seconds while visible; the upstream gate/cache still applies.
 

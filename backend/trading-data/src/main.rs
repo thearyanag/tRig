@@ -25,11 +25,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     let assets = assets.ok_or("--assets is required")?;
-    if !assets.join("index.html").is_file()
-        || !assets
-            .join("charting_library/charting_library.standalone.js")
-            .is_file()
-    {
+    if !assets.join("index.html").is_file() || !assets.join("chart.js").is_file() {
         return Err("Chart resources are missing".into());
     }
     let database = database.ok_or("--database is required")?;
