@@ -96,14 +96,11 @@ struct LimitOrderTicketView: View {
             }
             .font(AppTypography.bodySemibold).frame(maxWidth: .infinity).frame(height: 40)
           }
-          .buttonStyle(
-            TerminalControlStyle(
-              fill: TerminalStyle.accent, foreground: .white, border: TerminalStyle.accent)
-          )
+          .buttonStyle(TerminalControlStyle.primary)
           .disabled(!request.isValid || store.isLoading)
           Text("Quote preview only. No order will be placed.")
             .font(AppTypography.caption).foregroundStyle(.secondary)
-        }.padding(12).background(TerminalStyle.panel)
+        }.padding(12).background(TerminalStyle.quotePanel)
           .overlay(alignment: .top) { Divider() }
       }
     }

@@ -19,6 +19,15 @@ struct WindowControlsView: NSViewRepresentable {
       restoreSystemControls()
       attachedWindow = window
       for view in subviews { view.removeFromSuperview() }
+      let leading: CGFloat
+      let spacing: CGFloat
+      if #available(macOS 26, *) {
+        leading = 27
+        spacing = 25
+      } else {
+        leading = 16
+        spacing = 21
+      }
       for (index, kind) in kinds.enumerated() {
         guard
           let button = NSWindow.standardWindowButton(
@@ -38,7 +47,7 @@ struct WindowControlsView: NSViewRepresentable {
           button.setAccessibilityLabel("Full screen or zoom window")
         }
         button.setFrameOrigin(
-          NSPoint(x: 16 + CGFloat(index) * 21, y: (54 - button.frame.height) / 2))
+          NSPoint(x: leading + CGFloat(index) * spacing, y: (54 - button.frame.height) / 2))
         addSubview(button)
       }
     }

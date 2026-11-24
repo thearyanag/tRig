@@ -5,34 +5,45 @@ struct WorkspaceTopBar: View {
   @Binding var section: WorkspaceSection
   let openSearch: () -> Void
 
+  private var usesGlass: Bool {
+    if #available(macOS 26, *) { return true }
+    return false
+  }
+
   var body: some View {
     HStack(spacing: 18) {
-      HStack(spacing: 10) {
+      HStack(spacing: usesGlass ? 24 : 10) {
         Button {
           showSidebar.toggle()
         } label: {
-          Image(systemName: "sidebar.left").frame(width: 32, height: 40)
+          Image(systemName: "sidebar.left")
+            .frame(width: 30, height: 30).terminalGlass(.init(cornerRadius: 15))
+            .frame(width: 32, height: 40)
         }
         .buttonStyle(.plain).help(showSidebar ? "Hide left pane" : "Show left pane")
         .accessibilityLabel(showSidebar ? "Hide left pane" : "Show left pane")
         Text("Workspace").font(AppTypography.bodySemibold)
       }
+      .padding(.trailing, usesGlass ? 34 : 0)
+      .fixedSize()
       HStack(spacing: 4) {
         ForEach(WorkspaceSection.allCases) { value in
           Button {
             section = value
           } label: {
-            Text(value.rawValue).font(AppTypography.calloutMedium).padding(.horizontal, 14).frame(
-              height: 34)
+            Text(value.rawValue).font(AppTypography.calloutMedium).padding(.horizontal, 14)
+              .frame(minWidth: usesGlass ? 100 : nil).frame(height: 34)
           }
           .buttonStyle(
             TerminalControlStyle(
               fill: section == value ? TerminalStyle.accent : .clear,
-              border: section == value ? TerminalStyle.accent : .clear)
+              border: section == value ? TerminalStyle.accent : .clear,
+              glass: section == value ? .init(tint: TerminalStyle.accent, cornerRadius: 16) : nil)
           )
           .accessibilityAddTraits(section == value ? .isSelected : [])
         }
       }
+      .terminalControlTrack(cornerRadius: 19)
       Spacer(minLength: 8)
       Button(action: openSearch) {
         HStack(spacing: 10) {
@@ -44,32 +55,29 @@ struct WorkspaceTopBar: View {
             .background(TerminalStyle.panel, in: RoundedRectangle(cornerRadius: 4))
         }
         .font(AppTypography.callout)
-        .padding(.horizontal, 12).frame(width: 320, height: 34)
-        .background(
-          TerminalStyle.field, in: RoundedRectangle(cornerRadius: TerminalStyle.controlRadius)
-        )
-        .overlay(
-          RoundedRectangle(cornerRadius: TerminalStyle.controlRadius).strokeBorder(
-            TerminalStyle.border)
-        )
-        .frame(minHeight: 40)
-        .contentShape(Rectangle())
+        .padding(.horizontal, 12).frame(width: usesGlass ? 400 : 320, height: 34)
       }
-      .buttonStyle(.plain).accessibilityLabel("Search assets or paste a contract address")
+      .buttonStyle(TerminalControlStyle(glass: .init(cornerRadius: 17)))
+      .accessibilityLabel("Search assets or paste a contract address")
       Spacer(minLength: 8)
       Text(section == .portfolio ? "Read only" : "Quote only").font(AppTypography.caption)
         .foregroundStyle(.secondary)
       SettingsLink {
-        Image(systemName: "gearshape").frame(width: 32, height: 40)
+        Image(systemName: "gearshape")
+          .frame(width: 30, height: 30).terminalGlass(.init(cornerRadius: 15))
+          .frame(width: 32, height: 40)
       }
       .buttonStyle(.plain).help("Settings (⌘,)")
       .accessibilityLabel("Settings")
     }
-    .padding(.leading, 96).padding(.trailing, 14)
+    .padding(.leading, usesGlass ? 118 : 96).padding(.trailing, 14)
     .frame(height: 54)
-    .background(TerminalStyle.panel)
+    .terminalGlassGroup()
+    .background { WorkspaceChrome(region: .toolbar) }
     .background(WindowDragRegion())
-    .overlay(alignment: .leading) { WindowControlsView().frame(width: 86, height: 54) }
+    .overlay(alignment: .leading) {
+      WindowControlsView().frame(width: usesGlass ? 106 : 86, height: 54)
+    }
     .overlay(alignment: .bottom) { Divider() }
   }
 }

@@ -51,10 +51,10 @@ struct SwapTokenAmountView: View {
       }
       .padding(.horizontal, 10).frame(height: 40)
       .background(
-        TerminalStyle.field, in: RoundedRectangle(cornerRadius: TerminalStyle.controlRadius)
+        TerminalStyle.field, in: RoundedRectangle(cornerRadius: TerminalStyle.quoteFieldRadius)
       )
       .overlay(
-        RoundedRectangle(cornerRadius: TerminalStyle.controlRadius).strokeBorder(
+        RoundedRectangle(cornerRadius: TerminalStyle.quoteFieldRadius).strokeBorder(
           editable && amountFocused.wrappedValue ? TerminalStyle.accent : TerminalStyle.border))
       if let fiatValue {
         Text(fiatValue).font(AppTypography.caption).foregroundStyle(.secondary)

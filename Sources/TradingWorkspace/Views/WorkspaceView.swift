@@ -136,6 +136,12 @@ struct WorkspaceView: View {
     let ready = loadedMarketKey == asset.marketKey
     let snapshot = marketData.snapshot.flatMap { $0.matches(asset) ? $0 : nil }
     let price = ready ? (workspace.lastPrice ?? snapshot?.asset.priceUsd ?? asset.priceUsd) : nil
+    let tradesWidth: (ideal: CGFloat, maximum: CGFloat)
+    if #available(macOS 26, *) {
+      tradesWidth = (296, 312)
+    } else {
+      tradesWidth = (260, 280)
+    }
     return VStack(spacing: 0) {
       AssetHeaderView(
         asset: asset, livePrice: price, isLiveMarket: true, snapshot: snapshot,
@@ -187,7 +193,7 @@ struct WorkspaceView: View {
         .frame(minWidth: 440, minHeight: 320)
         if showTrades {
           RecentTradesPanel(asset: asset, store: marketData, collapse: { showTrades = false })
-            .frame(minWidth: 253, idealWidth: 260, maxWidth: 280)
+            .frame(minWidth: 253, idealWidth: tradesWidth.ideal, maxWidth: tradesWidth.maximum)
         }
         SwapQuoteTicketView(
           asset: asset, draft: $draft, limitDraft: $limitDraft, exitDraft: $exitDraft,

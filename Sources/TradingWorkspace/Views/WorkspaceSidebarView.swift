@@ -24,11 +24,14 @@ struct WorkspaceSidebarView: View {
           .buttonStyle(
             TerminalControlStyle(
               fill: section == tab ? TerminalStyle.accent : TerminalStyle.field,
-              border: section == tab ? TerminalStyle.accent : TerminalStyle.border)
+              border: section == tab ? TerminalStyle.accent : TerminalStyle.border,
+              glass: .init(tint: section == tab ? TerminalStyle.accent : nil))
           )
           .accessibilityAddTraits(section == tab ? .isSelected : [])
         }
       }
+      .terminalGlassGroup()
+      .terminalControlTrack(cornerRadius: 10)
       .padding(.horizontal, 18).padding(.vertical, 12)
       if !showContext {
         VStack(alignment: .leading, spacing: 12) {
@@ -87,10 +90,10 @@ struct WorkspaceSidebarView: View {
         )
         .font(AppTypography.calloutMedium).frame(maxWidth: .infinity).frame(height: 36)
       }
-      .buttonStyle(TerminalControlStyle()).padding(18)
+      .buttonStyle(TerminalControlStyle(glass: .init(cornerRadius: 16))).padding(18)
     }
     .frame(maxHeight: .infinity)
-    .background(TerminalStyle.canvas)
+    .background { WorkspaceChrome(region: .sidebar) }
   }
 
 }

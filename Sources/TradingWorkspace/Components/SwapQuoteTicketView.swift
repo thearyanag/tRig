@@ -17,7 +17,7 @@ struct SwapQuoteTicketView: View {
       VStack(spacing: 8) {
         sideTabs
         orderMode
-      }.padding(12)
+      }.terminalGlassGroup().padding(12)
       if exitDraft.isEnabled {
         ExitOrderTicketView(
           asset: asset, exits: $exitDraft, slippage: $draft.slippage,
@@ -30,7 +30,7 @@ struct SwapQuoteTicketView: View {
         if asset.isSolana { marketTicket } else { EVMMarketQuoteView(asset: asset, trade: $draft) }
       }
     }
-    .background(TerminalStyle.panel)
+    .background(TerminalStyle.quotePanel)
     .onChange(of: draft.side) { _, side in
       if limitDraft.isEnabled {
         limitDraft.setPrice("")
@@ -123,20 +123,17 @@ struct SwapQuoteTicketView: View {
             Text(fresh ? "Review quote" : (store.isLoading ? "Getting quote…" : "Get quote"))
               .font(AppTypography.bodySemibold).frame(maxWidth: .infinity).frame(height: 40)
           }
-          .buttonStyle(
-            TerminalControlStyle(
-              fill: TerminalStyle.accent, foreground: .white, border: TerminalStyle.accent)
-          )
+          .buttonStyle(TerminalControlStyle.primary)
           .disabled(!input.isValid || store.isLoading)
           Text("Jupiter quotes exclude wallet costs. No order is placed.")
             .font(AppTypography.caption).foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(12).background(TerminalStyle.panel)
+        .padding(12).background(TerminalStyle.quotePanel)
         .overlay(alignment: .top) { Divider() }
       }
     }
-    .font(AppTypography.body).background(TerminalStyle.panel)
+    .font(AppTypography.body).background(TerminalStyle.quotePanel)
     .onChange(of: input) { _, value in
       store.requestDidChange(value)
       review = nil
@@ -165,12 +162,16 @@ struct SwapQuoteTicketView: View {
           TerminalControlStyle(
             fill: selected ? tint : TerminalStyle.field,
             foreground: selected ? (side == .buy ? TerminalStyle.field : .white) : .secondary,
-            border: selected ? tint : TerminalStyle.border)
+            border: selected ? tint : TerminalStyle.border,
+            glass: .init(
+              tint: selected ? tint : nil,
+              inactiveForeground: selected && side == .buy ? .primary : nil))
         )
         .accessibilityLabel("\(side.rawValue) \(asset.symbol)")
         .accessibilityAddTraits(selected ? .isSelected : [])
       }
     }
+    .terminalControlTrack(cornerRadius: 10)
   }
 
   private var orderMode: some View {
@@ -194,7 +195,8 @@ struct SwapQuoteTicketView: View {
           TerminalControlStyle(
             fill: selected ? TerminalStyle.panel : TerminalStyle.field,
             foreground: selected ? .primary : .secondary,
-            border: selected ? .white.opacity(0.2) : TerminalStyle.border)
+            border: selected ? .white.opacity(0.2) : TerminalStyle.border,
+            glass: .init(tint: selected ? .white.opacity(0.13) : nil, cornerRadius: 8))
         )
         .accessibilityLabel(mode == "TP/SL" ? "Take profit and stop loss" : "\(mode) order")
         .accessibilityAddTraits(selected ? .isSelected : [])
@@ -204,6 +206,7 @@ struct SwapQuoteTicketView: View {
             ? "Conditional quotes are unavailable on this network." : "")
       }
     }
+    .terminalControlTrack(cornerRadius: 8)
   }
 
   private var slippage: some View {
@@ -221,12 +224,14 @@ struct SwapQuoteTicketView: View {
             fill: draft.slippage == preset ? TerminalStyle.accent.opacity(0.15) : .clear,
             foreground: draft.slippage == preset ? .primary : .secondary,
             border: draft.slippage == preset
-              ? TerminalStyle.accent.opacity(0.5) : TerminalStyle.border)
+              ? TerminalStyle.accent.opacity(0.5) : TerminalStyle.border,
+            glass: .init(tint: draft.slippage == preset ? TerminalStyle.accent : nil, cornerRadius: 8))
         )
         .accessibilityLabel("\(preset.rawValue) slippage")
         .accessibilityAddTraits(draft.slippage == preset ? .isSelected : [])
       }
     }
+    .terminalGlassGroup()
   }
 
   private func changeSide(_ side: TradeSide) {

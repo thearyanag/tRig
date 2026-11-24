@@ -71,10 +71,7 @@ struct ExitOrderTicketView: View {
             Text(loading ? "Getting exit quotes…" : "Preview exits")
           }.font(AppTypography.bodySemibold).frame(maxWidth: .infinity).frame(height: 40)
         }
-        .buttonStyle(
-          TerminalControlStyle(
-            fill: TerminalStyle.accent, foreground: .white, border: TerminalStyle.accent)
-        )
+        .buttonStyle(TerminalControlStyle.primary)
         .disabled(
           loading
             || (!canPreview(exits.takeProfit, .takeProfit)
@@ -83,7 +80,7 @@ struct ExitOrderTicketView: View {
         Text("Independent quote previews. No orders are linked or placed.")
           .font(AppTypography.caption).foregroundStyle(.secondary)
           .fixedSize(horizontal: false, vertical: true)
-      }.padding(12).background(TerminalStyle.panel)
+      }.padding(12).background(TerminalStyle.quotePanel)
         .overlay(alignment: .top) { Divider() }
     }
     .font(AppTypography.body)

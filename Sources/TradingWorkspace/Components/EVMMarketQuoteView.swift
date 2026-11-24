@@ -11,6 +11,10 @@ struct EVMMarketQuoteView: View {
   @State private var store = ExecutionQuoteStore()
   @State private var details = false
   @FocusState private var amountFocused: Bool
+  private var fieldRadius: CGFloat {
+    if #available(macOS 26, *) { return TerminalStyle.quoteFieldRadius }
+    return 0
+  }
   private var counter: Asset? { counterAsset ?? asset.settlementAsset }
   private var inputAsset: Asset? { trade.side == .buy ? counter : asset }
   private var outputAsset: Asset? { trade.side == .buy ? asset : counter }
@@ -41,7 +45,7 @@ struct EVMMarketQuoteView: View {
               .multilineTextAlignment(.trailing).font(AppTypography.font(size: 18, weight: .medium))
               .focused($amountFocused).accessibilityLabel(
                 "Quote amount in \(inputAsset?.symbol ?? "pay token")")
-          }.padding(10).background(TerminalStyle.field)
+          }.padding(10).background(TerminalStyle.field, in: RoundedRectangle(cornerRadius: fieldRadius))
           Text("Receive estimate").font(AppTypography.caption).foregroundStyle(.secondary)
           HStack {
             token(outputAsset, selectable: trade.side == .sell)
@@ -49,7 +53,7 @@ struct EVMMarketQuoteView: View {
             Text(quote.map { PortfolioFormat.quantity($0.receiveAmount) } ?? "—")
               .font(AppTypography.font(size: 17, weight: .medium)).monospacedDigit().lineLimit(1)
               .minimumScaleFactor(0.6)
-          }.padding(10).background(TerminalStyle.field)
+          }.padding(10).background(TerminalStyle.field, in: RoundedRectangle(cornerRadius: fieldRadius))
           if crossChain {
             Label(
               "\(inputAsset?.network ?? "") → \(outputAsset?.network ?? "")",
@@ -60,13 +64,15 @@ struct EVMMarketQuoteView: View {
           VStack(alignment: .leading, spacing: 5) {
             Text("Public sender address").font(AppTypography.caption).foregroundStyle(.secondary)
             TextField("Address on \(inputAsset?.network ?? asset.network)", text: $sender)
-              .textFieldStyle(.plain).padding(8).background(TerminalStyle.field)
+              .textFieldStyle(.plain).padding(8)
+              .background(TerminalStyle.field, in: RoundedRectangle(cornerRadius: fieldRadius))
               .accessibilityLabel("Public sender address for quote")
             if crossChain {
               Text("Public destination address").font(AppTypography.caption).foregroundStyle(
                 .secondary)
               TextField("Address on \(outputAsset?.network ?? asset.network)", text: $recipient)
-                .textFieldStyle(.plain).padding(8).background(TerminalStyle.field)
+                .textFieldStyle(.plain).padding(8)
+                .background(TerminalStyle.field, in: RoundedRectangle(cornerRadius: fieldRadius))
                 .accessibilityLabel("Public destination address for quote")
             }
             Text("Used to estimate the route. No wallet is connected or authorized.")
@@ -116,10 +122,7 @@ struct EVMMarketQuoteView: View {
           } label: {
             Text(store.isLoading ? "Getting quote…" : "Get quote")
               .font(AppTypography.bodySemibold).frame(maxWidth: .infinity).frame(height: 40)
-          }.buttonStyle(
-            TerminalControlStyle(
-              fill: TerminalStyle.accent, foreground: .white, border: TerminalStyle.accent)
-          )
+          }.buttonStyle(TerminalControlStyle.primary)
           .disabled(
             !request.isValid || !validContext || store.isLoading || asset.marketQuotes == false)
           Text(
@@ -127,7 +130,7 @@ struct EVMMarketQuoteView: View {
               ? "Market quotes are unavailable on this network." : "Quote only. No order is placed."
           )
           .font(AppTypography.caption).foregroundStyle(.secondary)
-        }.padding(12).background(TerminalStyle.panel).overlay(alignment: .top) { Divider() }
+        }.padding(12).background(TerminalStyle.quotePanel).overlay(alignment: .top) { Divider() }
       }
     }
     .font(AppTypography.body)

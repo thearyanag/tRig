@@ -24,7 +24,8 @@ struct PortfolioSidebarView: View {
           .buttonStyle(
             TerminalControlStyle(
               fill: scope == item ? TerminalStyle.accent : .clear,
-              border: scope == item ? TerminalStyle.accent : .clear)
+              border: scope == item ? TerminalStyle.accent : .clear,
+              glass: scope == item ? .init(tint: TerminalStyle.accent) : nil)
           )
           .accessibilityLabel("Show \(item.name) portfolio")
           .accessibilityAddTraits(scope == item ? .isSelected : [])
@@ -57,6 +58,6 @@ struct PortfolioSidebarView: View {
       Spacer(minLength: 0)
     }
     .frame(width: 248).frame(maxHeight: .infinity)
-    .background(TerminalStyle.canvas)
+    .background { WorkspaceChrome(region: .sidebar) }
   }
 }
