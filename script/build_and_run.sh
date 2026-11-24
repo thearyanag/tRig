@@ -7,24 +7,87 @@ BUNDLE_ID="com.aryan.TradingWorkspace"
 MIN_SYSTEM_VERSION="14.0"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_BUNDLE="$ROOT_DIR/dist/$APP_NAME.app"
+BUILD_CONFIGURATION=debug
+if [[ "$MODE" == "--bundle-release" ]]; then
+  if [[ $# != 2 || "$2" != /*.app || -e "$2" ]]; then
+    echo "usage: $0 --bundle-release /absolute/path/to/new.app" >&2
+    exit 2
+  fi
+  APP_BUNDLE="$2"
+  BUILD_CONFIGURATION=release
+  export MACOSX_DEPLOYMENT_TARGET="$MIN_SYSTEM_VERSION"
+fi
 APP_MACOS="$APP_BUNDLE/Contents/MacOS"
 APP_BINARY="$APP_MACOS/$APP_NAME"
+TDLIB_BUILD="$ROOT_DIR/.build/telegram/tdlib-$(uname -m)"
 
 case "$MODE" in
-  run|--debug|debug|--logs|logs|--telemetry|telemetry|--verify|verify) ;;
+  run|--debug|debug|--logs|logs|--telemetry|telemetry|--verify|verify|--bundle-release) ;;
   *)
-    echo "usage: $0 [run|--debug|--logs|--telemetry|--verify]" >&2
+    echo "usage: $0 [run|--debug|--logs|--telemetry|--verify|--bundle-release <new.app>]" >&2
     exit 2
     ;;
 esac
 
 cd "$ROOT_DIR"
+SWIFT_BUILD_ARGS=(--configuration "$BUILD_CONFIGURATION")
+if [[ "$BUILD_CONFIGURATION" == "release" ]]; then
+  TELEGRAM_CONFIG="${TRIG_TELEGRAM_RELEASE_CONFIG:-$HOME/Library/Application Support/$BUNDLE_ID/telegram-release.json}"
+  if [[ ! -f "$TELEGRAM_CONFIG" || ! -r "$TELEGRAM_CONFIG" ]]; then
+    echo 'Set TRIG_TELEGRAM_RELEASE_CONFIG to a private JSON file with the dedicated tRig Telegram API credentials.' >&2
+    echo "Default path: $HOME/Library/Application Support/$BUNDLE_ID/telegram-release.json" >&2
+    exit 1
+  fi
+  if [[ ! -f "$TDLIB_BUILD/bundled-revision" || ! -f "$TDLIB_BUILD/libtdjson.dylib" ]]; then
+    echo 'Run ./script/build_tdlib.sh before building the Telegram-enabled release.' >&2
+    exit 1
+  fi
+  RELEASE_WORK="$(mktemp -d "${TMPDIR:-/tmp}/trig-release.XXXXXX")"
+  trap 'rm -rf -- "$RELEASE_WORK"' EXIT
+  # Pass a private file path to the linker and embed only the two recognized fields.
+  python3 - "$TELEGRAM_CONFIG" "$RELEASE_WORK/telegram.json" <<'PY'
+import json
+import os
+import re
+import sys
+
+try:
+    with open(sys.argv[1], "rb") as source:
+        raw = source.read(4097)
+    if len(raw) > 4096:
+        raise ValueError
+    credentials = json.loads(raw)
+    if not isinstance(credentials, dict):
+        raise ValueError
+    api_id = credentials.get("api_id")
+    api_hash = credentials.get("api_hash")
+    if type(api_id) is not int or not 0 < api_id <= 2_147_483_647:
+        raise ValueError
+    if not isinstance(api_hash, str) or not re.fullmatch(r"[0-9a-fA-F]{32}", api_hash):
+        raise ValueError
+    os.umask(0o077)
+    with open(sys.argv[2], "x") as embedded:
+        json.dump({"api_id": api_id, "api_hash": api_hash}, embedded)
+except (OSError, ValueError, RecursionError):
+    sys.exit("Invalid Telegram release configuration. Expected a positive API ID and 32-digit hex API hash.")
+PY
+  SWIFT_BUILD_ARGS+=(
+    --scratch-path "$RELEASE_WORK/swift-build"
+    -Xlinker -sectcreate -Xlinker __TEXT -Xlinker __trig_tg -Xlinker "$RELEASE_WORK/telegram.json"
+  )
+fi
 npm ci --prefix "$ROOT_DIR/chart-host" --no-audit --no-fund --prefer-offline
 npm run --prefix "$ROOT_DIR/chart-host" build
-pkill -x "$APP_NAME" >/dev/null 2>&1 || true
-swift build --product "$APP_NAME"
-BUILD_BINARY="$(swift build --show-bin-path)/$APP_NAME"
-cargo build --manifest-path "$ROOT_DIR/backend/trading-data/Cargo.toml" --locked
+if [[ "$BUILD_CONFIGURATION" == "debug" ]]; then
+  pkill -x "$APP_NAME" >/dev/null 2>&1 || true
+fi
+swift build "${SWIFT_BUILD_ARGS[@]}" --product "$APP_NAME"
+BUILD_BINARY="$(swift build "${SWIFT_BUILD_ARGS[@]}" --show-bin-path)/$APP_NAME"
+if [[ "$BUILD_CONFIGURATION" == "release" ]]; then
+  cargo build --manifest-path "$ROOT_DIR/backend/trading-data/Cargo.toml" --locked --release
+else
+  cargo build --manifest-path "$ROOT_DIR/backend/trading-data/Cargo.toml" --locked
+fi
 
 mkdir -p "$APP_MACOS"
 cp "$BUILD_BINARY" "$APP_BINARY.new"
@@ -37,12 +100,11 @@ rsync -a --delete "$ROOT_DIR/Sources/TradingWorkspace/Resources/Fonts/" "$APP_BU
 mkdir -p "$APP_BUNDLE/Contents/Resources/Onboarding"
 rsync -a --delete "$ROOT_DIR/Sources/TradingWorkspace/Resources/Onboarding/" "$APP_BUNDLE/Contents/Resources/Onboarding/"
 mkdir -p "$APP_BUNDLE/Contents/Helpers" "$APP_BUNDLE/Contents/Resources/Chart"
-cp "$ROOT_DIR/backend/trading-data/target/debug/trading-data-service" "$APP_BUNDLE/Contents/Helpers/trading-data-service.new"
+cp "$ROOT_DIR/backend/trading-data/target/$BUILD_CONFIGURATION/trading-data-service" "$APP_BUNDLE/Contents/Helpers/trading-data-service.new"
 mv -f "$APP_BUNDLE/Contents/Helpers/trading-data-service.new" "$APP_BUNDLE/Contents/Helpers/trading-data-service"
 chmod +x "$APP_BUNDLE/Contents/Helpers/trading-data-service"
 rsync -a --delete "$ROOT_DIR/.build/chart-host/" "$APP_BUNDLE/Contents/Resources/Chart/"
 
-TDLIB_BUILD="$ROOT_DIR/.build/telegram/tdlib-$(uname -m)"
 if [[ -f "$TDLIB_BUILD/libtdjson.dylib" && -f "$TDLIB_BUILD/bundled-revision" ]]; then
   mkdir -p "$APP_BUNDLE/Contents/Frameworks"
   cp -L "$TDLIB_BUILD/libtdjson.dylib" "$APP_BUNDLE/Contents/Frameworks/libtdjson.dylib.new"
@@ -73,6 +135,7 @@ PLIST
 open_app() { /usr/bin/open -n "$APP_BUNDLE"; }
 
 case "$MODE" in
+  --bundle-release) echo "Built $APP_BUNDLE" ;;
   run) open_app ;;
   --debug|debug) lldb -- "$APP_BINARY" ;;
   --logs|logs)

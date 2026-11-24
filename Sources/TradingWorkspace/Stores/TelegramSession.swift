@@ -9,8 +9,16 @@ final class TelegramSession {
   }
 
   static let shared = TelegramSession()
-  private static let slotKey = "telegram.sessionSlot"
-  private static let authorizedKey = "telegram.hadSession"
+  private static let sessionKeySuffix: String = {
+    #if DEBUG
+    return ""
+    #else
+    // Existing developer sessions and sessions for another app ID need their own TDLib slot.
+    return ".release.\(TelegramAppCredentials.release?.apiID ?? 0)"
+    #endif
+  }()
+  private static let slotKey = "telegram.sessionSlot" + sessionKeySuffix
+  private static let authorizedKey = "telegram.hadSession" + sessionKeySuffix
 
   private(set) var phase: Phase = .disconnected
   private(set) var accountName: String?
@@ -40,7 +48,9 @@ final class TelegramSession {
 
   var isConnected: Bool { phase == .ready }
   var needsGracefulClose: Bool { active }
-  var configurationAvailable: Bool { (try? TelegramAppCredentials.load(at: files.configuration)) != nil }
+  var configurationAvailable: Bool {
+    (try? TelegramAppCredentials.loadForCurrentBuild(developmentConfig: files.configuration)) != nil
+  }
 
   func restore() {
     guard !hasRestored else { return }
@@ -63,7 +73,8 @@ final class TelegramSession {
     guard !active else { return }
     issue = nil
     do {
-      let credentials = try TelegramAppCredentials.load(at: files.configuration)
+      let credentials = try TelegramAppCredentials.loadForCurrentBuild(
+        developmentConfig: files.configuration)
       let directory = files.root
       let frameworkDirectory = Bundle.main.privateFrameworksURL
         ?? Bundle.main.bundleURL.appendingPathComponent("Contents/Frameworks", isDirectory: true)

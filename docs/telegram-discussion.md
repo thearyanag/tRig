@@ -5,7 +5,7 @@ text quotes in the groups and direct messages where Telegram found the selected
 contract. Forum topics stay nested under their group and use titles returned by
 Telegram. The asset header's Telegram discussion button opens the sidebar.
 
-## Local setup
+## Development setup
 
 1. Build the optional Telegram library with `./script/build_tdlib.sh`.
    It needs Xcode command-line tools, CMake, Ninja, gperf, and Perl. The script
@@ -29,6 +29,10 @@ Telegram. The asset header's Telegram discussion button opens the sidebar.
    The app owns a separate local Telegram authorization. Its encrypted TDLib
    database key lives in the Mac Keychain. Disconnect logs out of that
    authorization and removes its local data after TDLib closes.
+
+Release builds embed tRig's registered Telegram app credentials before signing.
+On an installed release, open **Settings → Connect Telegram** to sign in. For
+maintainer setup, see the [release packaging guide](macos-dmg.md).
 
 ## Search and provenance
 

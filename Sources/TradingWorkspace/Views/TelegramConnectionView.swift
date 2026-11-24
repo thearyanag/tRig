@@ -108,9 +108,14 @@ struct TelegramConnectionView: View {
         if session.configurationAvailable {
           Button("Try again") { session.connect() }.buttonStyle(.borderedProminent)
         } else {
+          #if DEBUG
           Text("This build needs a local Telegram app configuration.")
             .foregroundStyle(.secondary)
           Button("Open configuration folder") { openConfigurationFolder() }
+          #else
+          Text("Telegram is unavailable in this build.")
+            .foregroundStyle(.secondary)
+          #endif
         }
       case .starting, .closing:
         HStack {
@@ -167,9 +172,11 @@ struct TelegramConnectionView: View {
     return NSImage(cgImage: bitmap, size: .zero)
   }
 
+  #if DEBUG
   private func openConfigurationFolder() {
     let folder = TelegramSessionFiles.appSupport
     try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
     NSWorkspace.shared.open(folder)
   }
+  #endif
 }

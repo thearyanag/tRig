@@ -1,4 +1,5 @@
 import Foundation
+import MachO
 import Security
 
 struct TelegramAppCredentials: Decodable, Sendable {
@@ -10,8 +11,33 @@ struct TelegramAppCredentials: Decodable, Sendable {
     case apiHash = "api_hash"
   }
 
-  static func load(at url: URL) throws -> Self {
-    guard let data = try? Data(contentsOf: url), data.count <= 4096,
+  static func loadForCurrentBuild(developmentConfig: URL) throws -> Self {
+    #if DEBUG
+    guard let data = try? Data(contentsOf: developmentConfig) else {
+      throw TelegramError.configuration
+    }
+    return try decode(data)
+    #else
+    guard let release else { throw TelegramError.configuration }
+    return release
+    #endif
+  }
+
+  #if !DEBUG
+  static let release: Self? = {
+    // The release linker embeds only the validated Telegram credential pair.
+    guard let executable = _dyld_get_image_header(0) else { return nil }
+    let header = UnsafeRawPointer(executable).assumingMemoryBound(to: mach_header_64.self)
+    var size: UInt = 0
+    guard let bytes = getsectiondata(header, "__TEXT", "__trig_tg", &size),
+      (1...4096).contains(size)
+    else { return nil }
+    return try? decode(Data(bytes: bytes, count: Int(size)))
+  }()
+  #endif
+
+  private static func decode(_ data: Data) throws -> Self {
+    guard data.count <= 4096,
       let credentials = try? JSONDecoder().decode(Self.self, from: data),
       credentials.apiID > 0, credentials.apiHash.utf8.count == 32,
       credentials.apiHash.utf8.allSatisfy({
