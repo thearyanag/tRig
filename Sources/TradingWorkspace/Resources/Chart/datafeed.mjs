@@ -26,7 +26,7 @@ export function createMarketFeed({ asset, report, currentResolution, fetcher = f
     });
     if (before !== undefined) params.set('before', String(before));
     try {
-      const response = await fetcher(`/api/chart/bars?${params}`, { signal: controller.signal, cache: 'no-store' });
+      const response = await fetcher(`./api/chart/bars?${params}`, { signal: controller.signal, cache: 'no-store' });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || `Chart request failed (${response.status})`);
       if (payload.mint !== asset.mint || payload.pool !== asset.pool || (payload.chain ?? 'solana') !== asset.chain) {

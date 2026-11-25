@@ -49,7 +49,7 @@ struct ChartPanelView: View {
             .foregroundStyle(.secondary)
         }
         Button {
-          if backend.error != nil { backend.restart() } else { reloadID = UUID() }
+          if backend.error != nil { backend.reconnect() } else { reloadID = UUID() }
         } label: {
           Image(systemName: "arrow.clockwise")
         }

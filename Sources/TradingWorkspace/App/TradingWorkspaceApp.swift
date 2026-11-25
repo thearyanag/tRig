@@ -55,7 +55,9 @@ private final class WorkspaceAppDelegate: NSObject, NSApplicationDelegate {
     }
     return .terminateLater
   }
-  func applicationWillTerminate(_ notification: Notification) { LocalDataService.shared.stop() }
+  func applicationWillTerminate(_ notification: Notification) {
+    (LocalDataService.shared as? LocalDataService)?.stop()
+  }
 }
 
 private struct WorkspaceCommands: Commands {

@@ -3,6 +3,7 @@ import SwiftUI
 struct WorkspaceView: View {
   @State private var workspace = WorkspaceStore.shared
   @State private var marketData = MarketDataStore()
+  private let backend = LocalDataService.shared
   @SceneStorage("workspace.tradesVisible") private var showTrades = true
   @Environment(PortfolioStore.self) private var portfolio
   @Environment(\.scenePhase) private var scenePhase
@@ -90,6 +91,11 @@ struct WorkspaceView: View {
   var body: some View {
     workspaceWithWelcome
       .task { portfolio.start(connections) }
+      .onChange(of: backend.baseURL) { _, url in
+        guard url != nil else { return }
+        if marketError != nil { resolveID = UUID() }
+        if !portfolio.isRestoringConnections { portfolio.requestUpdate() }
+      }
       .onChange(of: connections.accountSignature) { _, _ in portfolio.connectionChanged() }
       .onChange(of: scenePhase) { _, phase in
         portfolio.isActive = phase == .active

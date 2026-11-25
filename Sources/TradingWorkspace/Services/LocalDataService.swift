@@ -2,10 +2,24 @@ import Foundation
 import OSLog
 import Observation
 
-/// Owns the Rust sidecar used by the chart and local HTTP clients.
+@MainActor
+protocol LocalDataServiceConnection: AnyObject {
+  var baseURL: URL? { get }
+  var error: String? { get }
+  func readyURL() async throws -> URL
+  func start()
+  func reconnect()
+}
+
+/// Owns the Rust sidecar in packaged releases.
 @MainActor @Observable
-final class LocalDataService {
-  static let shared = LocalDataService()
+final class LocalDataService: LocalDataServiceConnection {
+  static let shared: any LocalDataServiceConnection = {
+    if Bundle.main.object(forInfoDictionaryKey: "TRIGUseDataLaunchAgent") as? Bool == true {
+      return LaunchAgentDataService()
+    }
+    return LocalDataService()
+  }()
   private(set) var baseURL: URL?
   private(set) var error: String?
 
@@ -135,6 +149,8 @@ final class LocalDataService {
     stop()
     start()
   }
+
+  func reconnect() { restart() }
 
   func stop() {
     clearProcess()

@@ -27,7 +27,7 @@ Optional flags: `--verify`, `--debug`, `--logs`, `--telemetry`.
 - `Sources/TradingWorkspace/Models`: local value models.
 - `Sources/TradingWorkspace/Components`: reusable native UI components.
 - `Sources/TradingWorkspace/Views`: trading shell and component gallery.
-- `Sources/TradingWorkspace/Services`: Rust sidecar lifecycle and local discovery client.
+- `Sources/TradingWorkspace/Services`: local Rust connection and market discovery clients.
 - `Sources/TradingWorkspace/Stores`: shared selection, persisted watchlist and app-wide portfolio state.
 - `Sources/TradingWorkspace/Resources/Chart`: Vela HTML/JavaScript host.
 - `chart-host`: Pinned chart dependencies and the app-bundle build.
@@ -196,9 +196,24 @@ and 24h/7d/All history.
 - History is conservatively capped at 180 days within the free provider window.
   Empty older pages end pagination; provider/network failures remain errors.
 - A 429 response imposes a one-minute cooldown. The native reload action retries.
-- Rust listens only on loopback on an ephemeral port. The app owns its process;
-  a parent-process check also prevents orphaned services after the app exits.
-- All library and chart host assets are bundled in the generated `.app`.
+- For development, `./script/build_and_run.sh` installs and starts a per-user
+  LaunchAgent on first run. Later UI builds leave its Rust process running.
+  The agent runs `~/Library/Application Support/com.aryan.TradingWorkspace/DataService/trading-data-service`
+  while signed in. It listens only on loopback on an ephemeral port and publishes
+  its connection details to a user-private file. The app discovers the new endpoint
+  automatically after the agent restarts. Pump and Fomo sign-in and authenticated
+  refreshes continue in the app. The agent serves chart assets staged by the UI build.
+- Packaged releases still bundle the Rust executable and chart assets and start
+  the helper when the app opens.
+
+Use these commands to work on the development service independently of the Mac app:
+
+```sh
+./script/data_service.sh build      # Rebuild and restart Rust only
+./script/data_service.sh restart    # Restart the installed build
+./script/data_service.sh status     # Inspect the launchd job and current PID
+./script/data_service.sh uninstall  # Unload it and remove its login registration
+```
 
 ## Checks
 

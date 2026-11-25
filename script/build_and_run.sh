@@ -78,15 +78,13 @@ PY
 fi
 npm ci --prefix "$ROOT_DIR/chart-host" --no-audit --no-fund --prefer-offline
 npm run --prefix "$ROOT_DIR/chart-host" build
-if [[ "$BUILD_CONFIGURATION" == "debug" ]]; then
-  pkill -x "$APP_NAME" >/dev/null 2>&1 || true
-fi
 swift build "${SWIFT_BUILD_ARGS[@]}" --product "$APP_NAME"
 BUILD_BINARY="$(swift build "${SWIFT_BUILD_ARGS[@]}" --show-bin-path)/$APP_NAME"
 if [[ "$BUILD_CONFIGURATION" == "release" ]]; then
   cargo build --manifest-path "$ROOT_DIR/backend/trading-data/Cargo.toml" --locked --release
 else
-  cargo build --manifest-path "$ROOT_DIR/backend/trading-data/Cargo.toml" --locked
+  pkill -x "$APP_NAME" >/dev/null 2>&1 || true
+  "$ROOT_DIR/script/data_service.sh" sync-chart
 fi
 
 mkdir -p "$APP_MACOS"
@@ -99,11 +97,15 @@ mkdir -p "$APP_BUNDLE/Contents/Resources/Fonts"
 rsync -a --delete "$ROOT_DIR/Sources/TradingWorkspace/Resources/Fonts/" "$APP_BUNDLE/Contents/Resources/Fonts/"
 mkdir -p "$APP_BUNDLE/Contents/Resources/Onboarding"
 rsync -a --delete "$ROOT_DIR/Sources/TradingWorkspace/Resources/Onboarding/" "$APP_BUNDLE/Contents/Resources/Onboarding/"
-mkdir -p "$APP_BUNDLE/Contents/Helpers" "$APP_BUNDLE/Contents/Resources/Chart"
-cp "$ROOT_DIR/backend/trading-data/target/$BUILD_CONFIGURATION/trading-data-service" "$APP_BUNDLE/Contents/Helpers/trading-data-service.new"
-mv -f "$APP_BUNDLE/Contents/Helpers/trading-data-service.new" "$APP_BUNDLE/Contents/Helpers/trading-data-service"
-chmod +x "$APP_BUNDLE/Contents/Helpers/trading-data-service"
-rsync -a --delete "$ROOT_DIR/.build/chart-host/" "$APP_BUNDLE/Contents/Resources/Chart/"
+if [[ "$BUILD_CONFIGURATION" == "release" ]]; then
+  mkdir -p "$APP_BUNDLE/Contents/Helpers" "$APP_BUNDLE/Contents/Resources/Chart"
+  cp "$ROOT_DIR/backend/trading-data/target/$BUILD_CONFIGURATION/trading-data-service" "$APP_BUNDLE/Contents/Helpers/trading-data-service.new"
+  mv -f "$APP_BUNDLE/Contents/Helpers/trading-data-service.new" "$APP_BUNDLE/Contents/Helpers/trading-data-service"
+  chmod +x "$APP_BUNDLE/Contents/Helpers/trading-data-service"
+  rsync -a --delete "$ROOT_DIR/.build/chart-host/" "$APP_BUNDLE/Contents/Resources/Chart/"
+else
+  rm -f -- "$APP_BUNDLE/Contents/Helpers/trading-data-service"
+fi
 
 if [[ -f "$TDLIB_BUILD/libtdjson.dylib" && -f "$TDLIB_BUILD/bundled-revision" ]]; then
   mkdir -p "$APP_BUNDLE/Contents/Frameworks"
@@ -131,6 +133,10 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
 </dict>
 </plist>
 PLIST
+
+if [[ "$BUILD_CONFIGURATION" == "debug" ]]; then
+  plutil -insert TRIGUseDataLaunchAgent -bool YES "$APP_BUNDLE/Contents/Info.plist"
+fi
 
 open_app() { /usr/bin/open -n "$APP_BUNDLE"; }
 
