@@ -7,6 +7,7 @@ struct TradingWorkspaceApp: App {
   @State private var connections: ConnectionStore
   @State private var portfolio: PortfolioStore
   @State private var telegram = TelegramSession.shared
+  @State private var research = ResearchConversationStore()
   init() {
     AppTypography.registerFonts()
     let connections = ConnectionStore()
@@ -21,6 +22,7 @@ struct TradingWorkspaceApp: App {
         .environment(connections)
         .environment(portfolio)
         .environment(telegram)
+        .environment(research)
         .font(AppTypography.body)
     }
     .windowStyle(.hiddenTitleBar)

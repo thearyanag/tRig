@@ -9,9 +9,7 @@ struct PortfolioSummaryView: View {
     HStack(spacing: 20) {
       metric(
         "Portfolio value", snapshot?.totalValueUsd, percentage: nil, prominent: true,
-        help: snapshot?.partial == true
-          ? "Reported value has partial coverage. Open the data-quality notice for details."
-          : "Current portfolio value reported by the selected accounts.")
+        help: "Current portfolio value reported by the selected accounts.")
       Divider().frame(height: 38)
       metric(
         "\(period.name == "All" ? "All available" : period.name) P&L",
@@ -25,7 +23,7 @@ struct PortfolioSummaryView: View {
         "Unrealized P&L", snapshot?.unrealizedPnlUsd, percentage: snapshot?.unrealizedPnlPercent,
         prominent: false,
         help:
-          "Unrealized P&L on current tracked holdings. A dash means the available cost basis is insufficient."
+          "Sum of unrealized P&L for holdings with a current value and a usable cost basis."
       )
     }
     .padding(.horizontal, 24).frame(height: 88)

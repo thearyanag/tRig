@@ -59,10 +59,6 @@ struct TradingDockView: View {
           .help(
             "Balances and marks come from the saved account snapshot, independently of the live chart and swap quote."
           )
-          if portfolio.market?.partial == true {
-            Text("Partial data").font(AppTypography.caption).foregroundStyle(.orange)
-              .help((portfolio.market?.warnings ?? []).joined(separator: "\n"))
-          }
         }
         Spacer()
         Button {

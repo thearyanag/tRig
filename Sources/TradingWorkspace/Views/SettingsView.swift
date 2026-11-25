@@ -5,8 +5,35 @@ struct SettingsView: View {
   @Environment(TelegramSession.self) private var telegram
   @State private var connecting: ConnectionService?
   @State private var showTelegram = false
+  @AppStorage("settings.selectedSection") private var selectedSection = "connections"
 
   var body: some View {
+    Group {
+      if ResearchProvider.enabledInBuild {
+        TabView(selection: $selectedSection) {
+          ScrollView { connectionSettings.padding(24) }
+            .tabItem { Label("Connections", systemImage: "link") }.tag("connections")
+          ScrollView { ResearchSettingsView().padding(24) }
+            .tabItem { Label("AI Providers", systemImage: "sparkles") }.tag("research")
+        }
+        .frame(width: 580, height: 485)
+      } else {
+        connectionSettings.padding(24).frame(width: 560)
+      }
+    }
+    .font(AppTypography.body).preferredColorScheme(.dark)
+    .task { await connections.restore() }
+    .sheet(item: $connecting) { service in
+      ConnectionBrowserView(session: connections.session(for: service))
+    }
+    .sheet(isPresented: $showTelegram, onDismiss: {
+      if !telegram.isConnected { Task { await telegram.close() } }
+    }) {
+      TelegramConnectionView(session: telegram)
+    }
+  }
+
+  private var connectionSettings: some View {
     VStack(alignment: .leading, spacing: 20) {
       VStack(alignment: .leading, spacing: 6) {
         Text("Connections").font(AppTypography.font(size: 20, weight: .semibold))
@@ -22,17 +49,6 @@ struct SettingsView: View {
       }
       Text("Account connections are separate from trading wallets.")
         .font(AppTypography.caption).foregroundStyle(.secondary)
-    }
-    .padding(24).frame(width: 560)
-    .font(AppTypography.body).preferredColorScheme(.dark)
-    .task { await connections.restore() }
-    .sheet(item: $connecting) { service in
-      ConnectionBrowserView(session: connections.session(for: service))
-    }
-    .sheet(isPresented: $showTelegram, onDismiss: {
-      if !telegram.isConnected { Task { await telegram.close() } }
-    }) {
-      TelegramConnectionView(session: telegram)
     }
   }
 }

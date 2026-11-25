@@ -30,6 +30,11 @@ struct WorkspaceOnboardingView: View {
   @Binding var step: WorkspaceOnboardingStep
   let onFinish: () -> Void
 
+  private var next: WorkspaceOnboardingStep? {
+    if step == .connections && !ResearchProvider.enabledInBuild { return nil }
+    return step.next
+  }
+
   var body: some View {
     ZStack {
       Color.black.opacity(0.48).ignoresSafeArea().accessibilityHidden(true)
@@ -41,7 +46,7 @@ struct WorkspaceOnboardingView: View {
   private var card: some View {
     VStack(alignment: .leading, spacing: 18) {
       HStack {
-        Text("\(step.rawValue) of \(WorkspaceOnboardingStep.allCases.count)")
+        Text("\(step.rawValue) of \(ResearchProvider.enabledInBuild ? WorkspaceOnboardingStep.allCases.count : 2)")
           .monospacedDigit()
         Spacer()
         Button("Skip tour", action: onFinish)
@@ -72,9 +77,9 @@ struct WorkspaceOnboardingView: View {
           }
           Spacer()
           Button {
-            if let next = step.next { step = next } else { onFinish() }
+            if let next { step = next } else { onFinish() }
           } label: {
-            Text(step.next == nil ? "Finish" : "Next").frame(width: 108, height: 40)
+            Text(next == nil ? "Finish" : "Next").frame(width: 108, height: 40)
           }
           .buttonStyle(TerminalControlStyle(fill: TerminalStyle.accent, border: TerminalStyle.accent))
           .keyboardShortcut(.defaultAction)

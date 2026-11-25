@@ -1,3 +1,4 @@
+import PortfolioPulseSupport
 import SwiftUI
 
 struct WorkspaceView: View {
@@ -9,12 +10,17 @@ struct WorkspaceView: View {
   @Environment(\.scenePhase) private var scenePhase
   @Environment(ConnectionStore.self) private var connections
   @Environment(TelegramSession.self) private var telegram
+  @Environment(ResearchConversationStore.self) private var research
   @AppStorage("workspace.completedWelcomeTour.v1") private var completedWelcomeTour = false
   @State private var welcomeStep: WorkspaceOnboardingStep = .markets
+  @State private var openPortfolioAfterWelcome = false
   @SceneStorage("workspace.section") private var sectionRaw = WorkspaceSection.markets.rawValue
   @State private var marketOpenTask: Task<Void, Never>?
   @State private var marketOpenError: String?
   @State private var showSearch = false
+  @State private var showSupport = false
+  @SceneStorage("workspace.researchExpanded") private var researchExpanded = false
+  @State private var researchDraft = ""
   @SceneStorage("workspace.sidebarVisible") private var showSidebar = true
   @SceneStorage("workspace.contextVisible") private var showContext = false
   @State private var draft = TradeDraft()
@@ -48,6 +54,7 @@ struct WorkspaceView: View {
         HStack(spacing: 0) {
           if showSidebar {
             WorkspaceSidebarView(workspace: workspace, selection: selection, showContext: $showContext,
+              showSupport: $showSupport,
               telegram: telegram) { showSearch = true }
               .frame(width: 304)
             Divider()
@@ -55,7 +62,28 @@ struct WorkspaceView: View {
           tradingLayout(workspace.selectedAsset).frame(
             minWidth: 760, maxWidth: .infinity, maxHeight: .infinity)
         }
+        .overlay(alignment: .bottom) {
+          if ResearchProvider.enabledInBuild {
+            ResearchPanelView(
+              asset: workspace.selectedAsset, expanded: $researchExpanded, question: $researchDraft)
+              .padding(.horizontal, 16).padding(.bottom, 10)
+          }
+        }
       }
+    }
+    .overlayPreferenceValue(SupportButtonBounds.self) { anchor in
+      if let anchor {
+        GeometryReader { proxy in
+          let button = proxy[anchor]
+          SupportPanelView(isOpen: $showSupport)
+            .padding(.leading, button.minX)
+            .padding(.bottom, proxy.size.height - button.minY + 8)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+        }
+      }
+    }
+    .onChange(of: section == .markets && showSidebar) { _, hasSidebar in
+      if !hasSidebar { showSupport = false }
     }
   }
 
@@ -91,6 +119,9 @@ struct WorkspaceView: View {
   var body: some View {
     workspaceWithWelcome
       .task { portfolio.start(connections) }
+      .task(id: completedWelcomeTour) {
+        if completedWelcomeTour && ResearchProvider.enabledInBuild { await research.restore() }
+      }
       .onChange(of: backend.baseURL) { _, url in
         guard url != nil else { return }
         if marketError != nil { resolveID = UUID() }
@@ -105,6 +136,14 @@ struct WorkspaceView: View {
       .ignoresSafeArea(.container, edges: .top)
       .focusedSceneValue(\.openAssetSearch, searchCommand)
       .focusedSceneValue(\.workspaceStore, completedWelcomeTour ? workspace : nil)
+      .onOpenURL { url in
+        guard url == PortfolioPulseSnapshot.portfolioURL else { return }
+        if completedWelcomeTour {
+          sectionRaw = WorkspaceSection.portfolio.rawValue
+        } else {
+          openPortfolioAfterWelcome = true
+        }
+      }
       .sheet(isPresented: $showSearch) {
         AssetSearchView(
           workspace: workspace, onOpen: { sectionRaw = WorkspaceSection.markets.rawValue })
@@ -134,7 +173,8 @@ struct WorkspaceView: View {
   }
 
   private func finishWelcomeTour() {
-    sectionRaw = WorkspaceSection.markets.rawValue
+    sectionRaw = openPortfolioAfterWelcome
+      ? WorkspaceSection.portfolio.rawValue : WorkspaceSection.markets.rawValue
     completedWelcomeTour = true
   }
 
@@ -213,6 +253,9 @@ struct WorkspaceView: View {
       TradingDockView(
         portfolio: portfolio, selectedMint: asset.isSolana ? asset.id : "", openHolding: openHolding
       )
+      if ResearchProvider.enabledInBuild {
+        Color.clear.frame(height: 60).accessibilityHidden(true)
+      }
     }
     .background(TerminalStyle.canvas)
   }
@@ -266,6 +309,7 @@ struct WorkspaceView: View {
 
 #Preview {
   WorkspaceView().environment(ConnectionStore()).environment(PortfolioStore())
+    .environment(ResearchConversationStore())
     .environment(TelegramSession.shared).frame(
     width: 1400, height: 900)
 }

@@ -41,6 +41,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let bound_port = listener.local_addr()?.port();
     let app = if let Some(path) = endpoint_file {
         let token = publish_endpoint(&path, bound_port)?;
+        let support = database
+            .parent()
+            .ok_or("Database has no support directory")?;
+        let data_url = format!("http://127.0.0.1:{bound_port}/{token}/");
+        let app = app.merge(trading_data_service::research::router(support, data_url));
         axum::Router::new().nest(&format!("/{token}"), app)
     } else {
         println!("{}", serde_json::json!({"port":bound_port}));

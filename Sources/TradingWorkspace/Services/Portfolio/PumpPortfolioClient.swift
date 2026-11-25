@@ -33,7 +33,6 @@ struct PumpPortfolioClient {
       throw PortfolioReadFailure(message: "The Pumpfun account changed. Refresh to confirm it.")
     }
     var positions: [[String: Any]] = []
-    var complete = false
     let deadline = Date().addingTimeInterval(90)
     for page in 0..<20 {
       if Date() > deadline { break }
@@ -49,22 +48,18 @@ struct PumpPortfolioClient {
       guard let rows = result["positions"] as? [[String: Any]] else {
         throw PortfolioReadFailure(message: "Pumpfun returned an unexpected holdings response.")
       }
-      if rows.isEmpty {
-        complete = true
-        break
-      }
+      if rows.isEmpty { break }
       positions += rows.map(cleanPosition)
       if page < 19 { try await Task.sleep(for: .seconds(1)) }
     }
     var history: [[String: Any]] = []
-    var warnings: [String] = []
     do {
       let result = try await get(
         "portfolio-summary/chart", query: [URLQueryItem(name: "period", value: period.pumpPeriod)],
         cookie: cookie, http: http)
       history = (result["points"] as? [[String: Any]] ?? []).map { pick($0, ["time", "value"]) }
     } catch is CancellationError { throw CancellationError() } catch {
-      warnings.append("Pumpfun's portfolio history could not refresh.")
+      // Holdings can refresh without history.
     }
     try Task.checkCancellation()
     let current = try ConnectionProfileRules.pumpCookie(in: await cookieStore.allCookies())
@@ -75,19 +70,15 @@ struct PumpPortfolioClient {
     var data = pick(
       summary,
       [
-        "wallet", "evmAddress", "totalValueUsd", "pnl", "percentage", "unrealizedPnl",
-        "nativeBalanceSol", "solPriceUsd", "unpriced", "unpricedCount", "computedAt",
+        "wallet", "evmAddress", "totalValueUsd", "pnl", "percentage",
+        "nativeBalanceSol", "solPriceUsd",
       ])
     data["holdings"] = (summary["holdings"] as? [[String: Any]] ?? []).map {
       pick($0, ["chain", "mint", "amount", "priceUsd", "valueUsd"])
     }
-    if let reprice = summary["reprice"] as? [String: Any] {
-      data["reprice"] = pick(reprice, ["unrepriced"])
-    }
     var envelope: [String: Any] = [
       "data": [
-        "summary": data, "positions": positions, "positionsComplete": complete, "history": history,
-        "warnings": warnings,
+        "summary": data, "positions": positions, "history": history,
       ]
     ]
     if let evm = summary["evmAddress"] as? String, ConnectionProfileRules.isWallet(evm) {

@@ -5,3 +5,4 @@
 /dist/
 /backend/trading-data/target/
 /chart-host/node_modules/
+/research-host/node_modules/

@@ -16,7 +16,7 @@ fn pump(wallet: &str, qty: &str, price: &str, basis: &str) -> Value {
     let now = crate::now();
     json!({"source":"pump","accountWallet":wallet,"period":"1d","fetchedAt":now,
       "data":{"summary":{"wallet":wallet,"totalValueUsd":value,"pnl":{"usd":"2"},"percentage":{"usd":"5"}},
-        "positionsComplete":true,"positions":[{"chainId":1399811149i64,"coinMint":MINT,"walletAddress":wallet,
+        "positions":[{"chainId":1399811149i64,"coinMint":MINT,"walletAddress":wallet,
           "amountHeld":qty,"tokenPriceUsd":price,"valueUsd":value,"costBasisUsd":basis,
           "coin":{"name":"Backpack","symbol":"BP"}}],
         "history":[{"time":now-86400,"value":"4"},{"time":now-43200,"value":"5"},{"time":now,"value":value}]}})
@@ -66,7 +66,6 @@ fn shared_wallet_is_counted_once_and_history_is_not_double_counted() {
     assert_eq!(result.all.total_value_usd.as_deref(), Some("10"));
     assert_eq!(result.all.holdings[0].sources.len(), 2);
     assert_eq!(result.all.holdings[0].lots.len(), 1);
-    assert!(result.all.partial);
     assert!(result.all.history.is_empty());
     assert!(result.all.period_pnl_usd.is_none());
     assert_eq!(result.pump.total_value_usd.as_deref(), Some("6"));
@@ -95,19 +94,38 @@ fn chain_and_mint_identity_prevent_ticker_collisions() {
     assert_eq!(result.all.holdings.len(), 2);
 }
 #[test]
-fn missing_prices_and_unknown_basis_never_become_zero_profit() {
+fn missing_prices_and_unknown_basis_are_excluded_from_unrealized_pnl() {
     let mut source = pump(A, "3", "2", "3");
     source["data"]["positions"][0]["valueUsd"] = Value::Null;
     source["data"]["positions"][0]["tokenPriceUsd"] = Value::Null;
     source["data"]["positions"][0]["hasUntrustedUsdBasis"] = json!(true);
-    source["data"]["summary"]["unpriced"] = json!(true);
     let result = build(request(vec![source])).unwrap();
     let row = &result.pump.holdings[0];
     assert!(row.value_usd.is_none());
     assert!(row.pnl_usd.is_none());
     assert!(row.average_entry_usd.is_none());
-    assert!(result.pump.unrealized_pnl_usd.is_none());
-    assert!(result.pump.partial);
+    assert_eq!(result.pump.unrealized_pnl_usd.as_deref(), Some("0"));
+    assert!(result.pump.unrealized_pnl_percent.is_none());
+}
+#[test]
+fn usable_positions_supply_unrealized_pnl_and_its_matching_cost_basis() {
+    let mut source = pump(A, "3", "2", "3");
+    let mut unpriced = source["data"]["positions"][0].clone();
+    unpriced["coinMint"] = json!(B);
+    unpriced["valueUsd"] = Value::Null;
+    unpriced["costBasisUsd"] = json!("30");
+    let mut unverified = source["data"]["positions"][0].clone();
+    unverified["coinMint"] = json!(A);
+    unverified["hasUntrustedUsdBasis"] = json!(true);
+    source["data"]["positions"] = json!([source["data"]["positions"][0], unpriced, unverified]);
+    let mut other = fomo(B, "5", 0, "2", "5");
+    other["data"]["balances"]["balances"][0]["tokenFilterResult"]["priceUSD"] = Value::Null;
+
+    let result = build(request(vec![source, other])).unwrap();
+    for view in [&result.pump, &result.all] {
+        assert_eq!(view.unrealized_pnl_usd.as_deref(), Some("3"));
+        assert_eq!(view.unrealized_pnl_percent.as_deref(), Some("100"));
+    }
 }
 #[test]
 fn provider_totals_are_not_replaced_by_a_visible_holdings_subtotal() {
@@ -136,7 +154,7 @@ fn history_uses_the_common_range_without_zero_filling_missing_accounts() {
     assert!(result.all.history_message.is_some());
 }
 #[test]
-fn missing_sources_are_partial_not_empty_successful_portfolios() {
+fn missing_sources_keep_the_failure_and_do_not_report_zero_profit() {
     let mut req = request(vec![]);
     req.issues.push(PortfolioIssue {
         source: Source::Pump,
@@ -144,7 +162,7 @@ fn missing_sources_are_partial_not_empty_successful_portfolios() {
     });
     let result = build(req).unwrap();
     assert!(result.all.total_value_usd.is_none());
-    assert!(result.all.partial);
+    assert!(result.all.unrealized_pnl_usd.is_none());
     assert_eq!(result.all.source_count, 0);
     assert!(!result.all.warnings.is_empty());
 }
@@ -154,7 +172,7 @@ fn malformed_source_identity_and_periods_are_rejected() {
     source["data"]["summary"]["wallet"] = json!(B);
     let invalid = build(request(vec![source])).unwrap();
     assert_eq!(invalid.pump.source_count, 0);
-    assert!(invalid.pump.partial);
+    assert!(!invalid.pump.warnings.is_empty());
     let mut source = pump(A, "3", "2", "3");
     source["period"] = json!("7d");
     assert!(build(request(vec![source])).is_err());
@@ -183,7 +201,7 @@ fn unsafe_decimal_exponents_and_invalid_native_mints_are_not_invented() {
 }
 
 #[test]
-fn fomo_unknown_basis_does_not_show_partial_profit_as_the_account_total() {
+fn fomo_unknown_basis_is_excluded_from_unrealized_profit() {
     let mut source = fomo(B, "5", 0, "2", "5");
     let mut unknown = source["data"]["balances"]["balances"][0].clone();
     unknown["balance"]["tokenAddress"] = json!(A);
@@ -196,9 +214,8 @@ fn fomo_unknown_basis_does_not_show_partial_profit_as_the_account_total() {
     let result = build(request(vec![source])).unwrap();
     assert_eq!(result.fomo.holdings.len(), 2);
     assert!(result.fomo.holdings.iter().all(|h| h.chain == "solana"));
-    assert!(result.fomo.unrealized_pnl_usd.is_none());
+    assert_eq!(result.fomo.unrealized_pnl_usd.as_deref(), Some("5"));
     assert!(result.fomo.period_pnl_usd.is_none());
-    assert!(result.fomo.partial);
 }
 #[test]
 fn one_invalid_provider_does_not_hide_the_other_accounts_portfolio() {
@@ -207,7 +224,7 @@ fn one_invalid_provider_does_not_hide_the_other_accounts_portfolio() {
     let result = build(request(vec![invalid, fomo(B, "5", 0, "2", "5")])).unwrap();
     assert_eq!(result.all.source_count, 1);
     assert_eq!(result.all.total_value_usd.as_deref(), Some("10"));
-    assert!(result.all.partial);
+    assert!(!result.all.warnings.is_empty());
     assert_eq!(result.pump.source_count, 0);
     assert_eq!(result.fomo.source_count, 1);
 }

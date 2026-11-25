@@ -4,6 +4,7 @@ pub mod market;
 pub mod models;
 pub mod portfolio;
 pub mod quotes;
+pub mod research;
 
 use axum::{
     extract::{Query, State},

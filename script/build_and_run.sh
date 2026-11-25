@@ -5,6 +5,8 @@ MODE="${1:-run}"
 APP_NAME="TradingWorkspace"
 BUNDLE_ID="com.aryan.TradingWorkspace"
 MIN_SYSTEM_VERSION="14.0"
+APP_VERSION="0.1.1"
+BUILD_NUMBER="2"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_BUNDLE="$ROOT_DIR/dist/$APP_NAME.app"
 BUILD_CONFIGURATION=debug
@@ -19,6 +21,8 @@ if [[ "$MODE" == "--bundle-release" ]]; then
 fi
 APP_MACOS="$APP_BUNDLE/Contents/MacOS"
 APP_BINARY="$APP_MACOS/$APP_NAME"
+WIDGET_NAME="PortfolioPulseWidget"
+WIDGET_BUNDLE="$APP_BUNDLE/Contents/PlugIns/$WIDGET_NAME.appex"
 TDLIB_BUILD="$ROOT_DIR/.build/telegram/tdlib-$(uname -m)"
 
 case "$MODE" in
@@ -80,6 +84,9 @@ npm ci --prefix "$ROOT_DIR/chart-host" --no-audit --no-fund --prefer-offline
 npm run --prefix "$ROOT_DIR/chart-host" build
 swift build "${SWIFT_BUILD_ARGS[@]}" --product "$APP_NAME"
 BUILD_BINARY="$(swift build "${SWIFT_BUILD_ARGS[@]}" --show-bin-path)/$APP_NAME"
+# The widget has its own link step and never receives the app's Telegram linker inputs.
+swift build --configuration "$BUILD_CONFIGURATION" --product "$WIDGET_NAME"
+WIDGET_BINARY="$(swift build --configuration "$BUILD_CONFIGURATION" --show-bin-path)/$WIDGET_NAME"
 if [[ "$BUILD_CONFIGURATION" == "release" ]]; then
   cargo build --manifest-path "$ROOT_DIR/backend/trading-data/Cargo.toml" --locked --release
 else
@@ -99,13 +106,42 @@ mkdir -p "$APP_BUNDLE/Contents/Resources/Onboarding"
 rsync -a --delete "$ROOT_DIR/Sources/TradingWorkspace/Resources/Onboarding/" "$APP_BUNDLE/Contents/Resources/Onboarding/"
 if [[ "$BUILD_CONFIGURATION" == "release" ]]; then
   mkdir -p "$APP_BUNDLE/Contents/Helpers" "$APP_BUNDLE/Contents/Resources/Chart"
-  cp "$ROOT_DIR/backend/trading-data/target/$BUILD_CONFIGURATION/trading-data-service" "$APP_BUNDLE/Contents/Helpers/trading-data-service.new"
-  mv -f "$APP_BUNDLE/Contents/Helpers/trading-data-service.new" "$APP_BUNDLE/Contents/Helpers/trading-data-service"
-  chmod +x "$APP_BUNDLE/Contents/Helpers/trading-data-service"
+  install -m 755 "$ROOT_DIR/backend/trading-data/target/release/trading-data-service" \
+    "$APP_BUNDLE/Contents/Helpers/trading-data-service"
   rsync -a --delete "$ROOT_DIR/.build/chart-host/" "$APP_BUNDLE/Contents/Resources/Chart/"
 else
   rm -f -- "$APP_BUNDLE/Contents/Helpers/trading-data-service"
 fi
+
+mkdir -p "$WIDGET_BUNDLE/Contents/MacOS" "$WIDGET_BUNDLE/Contents/Resources"
+cp "$WIDGET_BINARY" "$WIDGET_BUNDLE/Contents/MacOS/$WIDGET_NAME.new"
+mv -f "$WIDGET_BUNDLE/Contents/MacOS/$WIDGET_NAME.new" "$WIDGET_BUNDLE/Contents/MacOS/$WIDGET_NAME"
+for icon in solana.jpg backpack.png usdc.png; do
+  cp "$ROOT_DIR/Sources/TradingWorkspace/Resources/Icons/$icon" "$WIDGET_BUNDLE/Contents/Resources/"
+done
+cat > "$WIDGET_BUNDLE/Contents/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleExecutable</key><string>$WIDGET_NAME</string>
+  <key>CFBundleIdentifier</key><string>$BUNDLE_ID.$WIDGET_NAME</string>
+  <key>CFBundleName</key><string>Portfolio Pulse</string>
+  <key>CFBundleDisplayName</key><string>Portfolio Pulse</string>
+  <key>CFBundlePackageType</key><string>XPC!</string>
+  <key>CFBundleSupportedPlatforms</key><array><string>MacOSX</string></array>
+  <key>CFBundleDevelopmentRegion</key><string>en</string>
+  <key>DTPlatformName</key><string>macosx</string>
+  <key>CFBundleShortVersionString</key><string>$APP_VERSION</string>
+  <key>CFBundleVersion</key><string>$BUILD_NUMBER</string>
+  <key>LSMinimumSystemVersion</key><string>$MIN_SYSTEM_VERSION</string>
+  <key>NSExtension</key>
+  <dict>
+    <key>NSExtensionPointIdentifier</key><string>com.apple.widgetkit-extension</string>
+  </dict>
+</dict>
+</plist>
+PLIST
 
 if [[ -f "$TDLIB_BUILD/libtdjson.dylib" && -f "$TDLIB_BUILD/bundled-revision" ]]; then
   mkdir -p "$APP_BUNDLE/Contents/Frameworks"
@@ -124,18 +160,28 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
   <key>CFBundleName</key><string>Trading Workspace</string>
   <key>CFBundleDisplayName</key><string>Trading Workspace</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>0.1.0</string>
-  <key>CFBundleVersion</key><string>1</string>
+  <key>CFBundleShortVersionString</key><string>$APP_VERSION</string>
+  <key>CFBundleVersion</key><string>$BUILD_NUMBER</string>
   <key>LSMinimumSystemVersion</key><string>$MIN_SYSTEM_VERSION</string>
   <key>NSPrincipalClass</key><string>NSApplication</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
+  <key>CFBundleURLTypes</key><array><dict>
+    <key>CFBundleURLName</key><string>$BUNDLE_ID</string>
+    <key>CFBundleURLSchemes</key><array><string>trig</string></array>
+  </dict></array>
 </dict>
 </plist>
 PLIST
 
 if [[ "$BUILD_CONFIGURATION" == "debug" ]]; then
   plutil -insert TRIGUseDataLaunchAgent -bool YES "$APP_BUNDLE/Contents/Info.plist"
+  if [[ -n "${TRIG_WIDGET_SIGN_IDENTITY:-}" ]]; then
+    "$ROOT_DIR/script/sign_app.sh" "$APP_BUNDLE" "$TRIG_WIDGET_SIGN_IDENTITY" --timestamp=none
+  else
+    codesign --force --sign - "$WIDGET_BUNDLE"
+    codesign --force --sign - "$APP_BUNDLE"
+  fi
 fi
 
 open_app() { /usr/bin/open -n "$APP_BUNDLE"; }

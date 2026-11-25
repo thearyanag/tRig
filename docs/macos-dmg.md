@@ -37,6 +37,22 @@ The image targets macOS 14 or later. The local arm64 build is for Apple silicon.
 Provider configuration, account sessions, and local databases stay outside the
 bundle in Application Support.
 
+## Portfolio Pulse
+
+Open **Edit Widgets** on the desktop or in Notification Center and add the
+medium **Portfolio Pulse** widget from Trading Workspace. Click the widget
+to open Portfolio. It displays the latest snapshot saved by the app.
+
+The signed app and its sandboxed WidgetKit extension share an App Group
+derived from the signing certificate's Team ID. The group holds only the
+widget summary. The app handles provider refresh and account sessions. Today's
+move is the balance change across comparable portfolio history since local
+midnight. Top unrealized uses the holding with the largest absolute unrealized
+P&L. Missing or incomparable history shows an unavailable state.
+
+For local widget verification, set `TRIG_WIDGET_SIGN_IDENTITY` to a Developer ID
+Application identity before running `./script/build_and_run.sh --verify`.
+
 A review image is signed but has no Apple notarization ticket. Before sending a
 release to testers, confirm permission to redistribute any bundled vendor code,
 then submit the signed disk image to Apple's notary service. After acceptance,

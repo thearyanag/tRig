@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import PortfolioPulseSupport
 
 /// Shared app state backed by the Rust repository. There is no provider payload cache in Swift.
 @MainActor @Observable
@@ -42,6 +43,10 @@ final class PortfolioStore {
   @ObservationIgnored private var cacheReadID = UUID()
   @ObservationIgnored private var lastIdentityCheck = Date()
   @ObservationIgnored private var serverRevision: Int64?
+  @ObservationIgnored private let pulsePublisher = PortfolioPulseStorage.shared().map {
+    PortfolioPulsePublisher(storage: $0)
+  }
+  @ObservationIgnored private var lastPulseRefresh = Date.distantPast
 
   init(
     backend: any PortfolioBackend = PortfolioBackendClient(),
@@ -62,6 +67,7 @@ final class PortfolioStore {
       guard let self else { return }
       self.generation = UUID()
       self.cache = nil
+      self.pulsePublisher?.publish(nil)
       try await self.backend.reconcile(accounts: [], removed: [source], revision: nil)
       await self.loadCached()
       self.requestUpdate()
@@ -103,6 +109,7 @@ final class PortfolioStore {
       })
     {
       self.cache = nil
+      pulsePublisher?.publish(nil)
     }
     requestUpdate()
   }
@@ -145,6 +152,7 @@ final class PortfolioStore {
       }
       cache = result
       error = nil
+      if requested == .day { publishPulse(result) }
     } catch {
       guard generation == id, cacheReadID == readID, period == requested else { return }
       self.error = "Saved portfolio data could not be loaded. Try refreshing again."
@@ -181,29 +189,12 @@ final class PortfolioStore {
         return
       }
       await loadCached()
-      let plan = try await backend.claim(period: period, available: available, force: force)
-      guard !plan.jobs.isEmpty else { return }
-      isRefreshing = true
-      defer { isRefreshing = false }
-      async let pump = read(plan.jobs.first { $0.source == .pump }, connections: connections)
-      async let fomo = read(plan.jobs.first { $0.source == .fomo }, connections: connections)
-      let results = await [pump, fomo].compactMap { $0 }
-      if plan.jobs.contains(where: {
-        connections.session(for: $0.source).profile?.wallet != $0.accountWallet
-      }) {
-        // Release the old lease without accepting its data. An account revision change
-        // makes this completion fail closed on the server as well.
-        try? await backend.complete(
-          plan: plan,
-          results: plan.jobs.map {
-            PortfolioSyncResult(job: $0, payload: nil, error: "The account changed during refresh.")
-          })
-        pending = true
-        return
+      let requested = period
+      if try await refreshPeriod(requested, available: available, force: force, connections: connections) {
+        error = nil
+        await loadCached()
       }
-      try await backend.complete(plan: plan, results: results)
-      error = nil
-      await loadCached()
+      await refreshPulseIfNeeded(generation: id, available: available, connections: connections)
     } catch {
       guard generation == id else {
         pending = true
@@ -212,6 +203,60 @@ final class PortfolioStore {
       self.error = "Portfolio could not refresh. Your last saved data is still shown."
     }
   }
+  private func refreshPeriod(
+    _ period: PortfolioPeriod, available: [PortfolioAccount], force: Bool,
+    connections: ConnectionStore
+  ) async throws -> Bool {
+    let plan = try await backend.claim(period: period, available: available, force: force)
+    guard !plan.jobs.isEmpty else { return false }
+    if period == self.period { isRefreshing = true }
+    defer { isRefreshing = false }
+    async let pump = read(plan.jobs.first { $0.source == .pump }, connections: connections)
+    async let fomo = read(plan.jobs.first { $0.source == .fomo }, connections: connections)
+    let results = await [pump, fomo].compactMap { $0 }
+    if plan.jobs.contains(where: {
+      connections.session(for: $0.source).profile?.wallet != $0.accountWallet
+    }) {
+      try? await backend.complete(
+        plan: plan,
+        results: plan.jobs.map {
+          PortfolioSyncResult(job: $0, payload: nil, error: "The account changed during refresh.")
+        })
+      pending = true
+      return false
+    }
+    try await backend.complete(plan: plan, results: results)
+    return true
+  }
+
+  private func publishPulse(_ cache: PortfolioCache) {
+    guard let pulsePublisher else { return }
+    guard let connections else { return }
+    let available = cache.accounts.filter { account in
+      let view = account.source == .pump ? cache.views.pump : cache.views.fomo
+      return connections.session(for: account.source).profile?.wallet == account.accountWallet
+        && view.sourceCount == 1 && view.totalValueUsd != nil
+    }
+    guard let first = available.first else {
+      if !isRestoringConnections || cache.accounts.isEmpty { pulsePublisher.publish(nil) }
+      return
+    }
+    let scope: PortfolioScope = available.count == 2 ? .all : first.source == .pump ? .pump : .fomo
+    pulsePublisher.publish(PortfolioPulseSnapshot(cache: cache, scope: scope))
+  }
+
+  private func refreshPulseIfNeeded(
+    generation id: UUID, available: [PortfolioAccount], connections: ConnectionStore
+  ) async {
+    guard pulsePublisher != nil, period != .day, generation == id, !available.isEmpty,
+      Date().timeIntervalSince(lastPulseRefresh) >= 300
+    else { return }
+    lastPulseRefresh = .now
+    _ = try? await refreshPeriod(.day, available: available, force: false, connections: connections)
+    guard let result = try? await backend.cached(period: .day), generation == id else { return }
+    publishPulse(result)
+  }
+
   private func read(_ job: PortfolioSyncJob?, connections: ConnectionStore) async
     -> PortfolioSyncResult?
   {

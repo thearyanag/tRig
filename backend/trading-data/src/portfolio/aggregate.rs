@@ -223,17 +223,17 @@ pub fn combine(
             .cmp(&parsed(&a.value_usd))
             .then_with(|| a.id.cmp(&b.id))
     });
-    let mut warnings: BTreeSet<_> = snapshots.iter().flat_map(|s| s.warnings.clone()).collect();
-    for issue in issues {
-        warnings.insert(format!(
-            "{}: {}",
-            issue.source.name(),
-            issue.message.chars().take(240).collect::<String>()
-        ));
-    }
-    let partial = overlap || snapshots.iter().any(|s| s.partial) || !issues.is_empty();
+    let warnings = issues
+        .iter()
+        .map(|issue| {
+            format!(
+                "{}: {}",
+                issue.source.name(),
+                issue.message.chars().take(240).collect::<String>()
+            )
+        })
+        .collect::<BTreeSet<_>>();
     let total = if overlap {
-        warnings.insert("Shared wallets detected. Combined value shows deduplicated priced holdings; select a platform for its full reported total.".into());
         Some(
             holdings
                 .iter()
@@ -253,22 +253,17 @@ pub fn combine(
     } else {
         None
     };
-    let unrealized = if overlap {
-        sum(holdings
-            .iter()
-            .filter(|h| h.pnl_usd.is_some())
-            .map(|h| parsed(&h.pnl_usd)))
-    } else {
-        sum(snapshots.iter().map(|s| s.unrealized.clone()))
-    };
-    let known_basis = sum(holdings
+    let (unrealized, basis) = holdings
         .iter()
-        .filter(|h| h.pnl_usd.is_some())
-        .map(|h| sum(h.lots.iter().map(|l| parsed(&l.cost_basis_usd)))));
-    let unrealized_percent = unrealized
-        .as_ref()
-        .zip(known_basis.as_ref())
-        .and_then(|(p, b)| percent(p, b));
+        .flat_map(|holding| &holding.lots)
+        .filter_map(|lot| {
+            parsed(&lot.value_usd)?;
+            parsed(&lot.pnl_usd).zip(parsed(&lot.cost_basis_usd))
+        })
+        .fold((N::zero(), N::zero()), |(pnl, basis), (p, b)| {
+            (pnl + p, basis + b)
+        });
+    let unrealized_percent = percent(&unrealized, &basis);
     let (history, history_message) = combined_history(snapshots, period, overlap);
     PortfolioView {
         scope: scope.into(),
@@ -276,7 +271,7 @@ pub fn combine(
         total_value_usd: string(total),
         period_pnl_usd: string(pnl),
         period_pnl_percent: string(pnl_percent),
-        unrealized_pnl_usd: string(unrealized),
+        unrealized_pnl_usd: string((!snapshots.is_empty()).then_some(unrealized)),
         unrealized_pnl_percent: string(unrealized_percent),
         holdings,
         history,
@@ -286,7 +281,6 @@ pub fn combine(
             .map(|s| s.fetched_at)
             .min_by(f64::total_cmp),
         warnings: warnings.into_iter().collect(),
-        partial,
         history_message,
     }
 }

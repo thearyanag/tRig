@@ -64,7 +64,6 @@ struct PortfolioSnapshot: Decodable, Sendable {
   let sourceCount: Int
   let asOf: Double?
   let warnings: [String]
-  let partial: Bool
   let historyMessage: String?
 }
 struct PortfolioHolding: Decodable, Identifiable, Sendable {

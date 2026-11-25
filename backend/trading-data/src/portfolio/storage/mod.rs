@@ -270,18 +270,13 @@ impl Repository {
             let history = load(&db, a, Some(p))?;
             if now - latest.fetched_at >= REFRESH_SECONDS {
                 cached = true;
-                latest.partial = true;
-                latest.warnings.push(format!(
-                    "{} is showing saved data; a refresh is due.",
-                    a.source.name()
-                ));
             }
             if let Some(message) = failure {
                 cached = true;
-                latest.partial = true;
-                latest
-                    .warnings
-                    .push(format!("{}: {message}", a.source.name()));
+                issues.push(PortfolioIssue {
+                    source: a.source,
+                    message,
+                });
             }
             current.push(latest.clone());
             if let Some(h) = history {
@@ -290,18 +285,11 @@ impl Repository {
                 latest.history = h.history;
                 if now - h.fetched_at >= REFRESH_SECONDS {
                     cached = true;
-                    latest.partial = true;
-                    latest
-                        .warnings
-                        .push("The selected period's history and P&L are awaiting refresh.".into());
                 }
             } else {
                 latest.pnl = None;
                 latest.pnl_percent = None;
                 latest.history.clear();
-                latest
-                    .warnings
-                    .push("History and P&L have not been loaded for this period.".into());
             }
             snapshots.push(latest);
         }

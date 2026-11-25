@@ -4,6 +4,7 @@ struct WorkspaceSidebarView: View {
   let workspace: WorkspaceStore
   let selection: Binding<String?>
   @Binding var showContext: Bool
+  @Binding var showSupport: Bool
   let telegram: TelegramSession
   let openSearch: () -> Void
   private var section: String { showContext ? "Context" : "Watchlist" }
@@ -81,19 +82,43 @@ struct WorkspaceSidebarView: View {
           .id(workspace.selectedAsset.identity + telegram.epoch.uuidString)
       }
       Divider().padding(.horizontal, 18)
-      Button {
-        workspace.toggleWatch(workspace.selectedAsset)
-      } label: {
-        Label(
-          workspace.isWatched(workspace.selectedAsset) ? "Watching asset" : "Watch asset",
-          systemImage: workspace.isWatched(workspace.selectedAsset) ? "star.fill" : "star"
-        )
-        .font(AppTypography.calloutMedium).frame(maxWidth: .infinity).frame(height: 36)
+      VStack(spacing: 8) {
+        Button {
+          showSupport.toggle()
+        } label: {
+          Label("Support", systemImage: "bubble.left")
+            .font(AppTypography.calloutMedium)
+            .frame(maxWidth: .infinity).frame(height: 36)
+        }
+        .buttonStyle(TerminalControlStyle(
+          fill: showSupport ? TerminalStyle.accent : TerminalStyle.field,
+          glass: .init(tint: showSupport ? TerminalStyle.accent : nil, cornerRadius: 16)))
+        .accessibilityAddTraits(showSupport ? .isSelected : [])
+        .help(showSupport ? "Close support panel" : "Open tRig Support")
+        .anchorPreference(key: SupportButtonBounds.self, value: .bounds) { $0 }
+        Button {
+          workspace.toggleWatch(workspace.selectedAsset)
+        } label: {
+          Label(
+            workspace.isWatched(workspace.selectedAsset) ? "Watching asset" : "Watch asset",
+            systemImage: workspace.isWatched(workspace.selectedAsset) ? "star.fill" : "star"
+          )
+          .font(AppTypography.calloutMedium).frame(maxWidth: .infinity).frame(height: 36)
+        }
+        .buttonStyle(TerminalControlStyle(glass: .init(cornerRadius: 16)))
       }
-      .buttonStyle(TerminalControlStyle(glass: .init(cornerRadius: 16))).padding(18)
+      .padding(18)
     }
     .frame(maxHeight: .infinity)
     .background { WorkspaceChrome(region: .sidebar) }
   }
 
+}
+
+enum SupportButtonBounds: PreferenceKey {
+  static var defaultValue: Anchor<CGRect>? { nil }
+
+  static func reduce(value: inout Anchor<CGRect>?, nextValue: () -> Anchor<CGRect>?) {
+    value = nextValue() ?? value
+  }
 }

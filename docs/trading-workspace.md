@@ -215,6 +215,10 @@ Use these commands to work on the development service independently of the Mac a
 ./script/data_service.sh uninstall  # Unload it and remove its login registration
 ```
 
+## Asset research in development builds
+
+Rebuild the service with `./script/data_service.sh build` using Node.js 22.13 or later. The build stages the pinned ACPX helper alongside the LaunchAgent. In **Settings → AI Providers**, check an existing sign-in for Codex, Grok Build, or Antigravity. Ask a question in the floating bar at the bottom of Markets. The conversation opens upward and stays attached to the bar. tRig restores one conversation from Application Support and keeps its provider fixed after the first message. Each new message uses the market open when it was sent. The selected provider receives the question, the open market’s identity, and the results of the read-only MCP tools it calls.
+
 ## Checks
 
 ```sh

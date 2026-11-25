@@ -74,14 +74,11 @@ struct PortfolioView: View {
         }
       }
       Spacer(minLength: 4)
-      if !notices.isEmpty || snapshot?.partial == true {
+      if !notices.isEmpty {
         Button {
           showNotices.toggle()
         } label: {
-          Label(
-            snapshot?.partial == true ? "Partial data" : "Data notice",
-            systemImage: "exclamationmark.circle"
-          )
+          Label("Data notice", systemImage: "exclamationmark.circle")
           .font(AppTypography.font(size: 12)).foregroundStyle(.orange).padding(.horizontal, 8)
           .frame(
             height: 28)
