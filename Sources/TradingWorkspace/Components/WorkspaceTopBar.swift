@@ -3,7 +3,9 @@ import SwiftUI
 struct WorkspaceTopBar: View {
   @Binding var showSidebar: Bool
   @Binding var section: WorkspaceSection
+  let marketNetwork: String
   let openSearch: () -> Void
+  @Environment(\.openWorkspaceSettings) private var openSettings
 
   private var usesGlass: Bool {
     if #available(macOS 26, *) { return true }
@@ -60,9 +62,8 @@ struct WorkspaceTopBar: View {
       .buttonStyle(TerminalControlStyle(glass: .init(cornerRadius: 17)))
       .accessibilityLabel("Search assets or paste a contract address")
       Spacer(minLength: 8)
-      Text(section == .portfolio ? "Read only" : "Quote only").font(AppTypography.caption)
-        .foregroundStyle(.secondary)
-      SettingsLink {
+      WalletControl(marketNetwork: marketNetwork)
+      Button { openSettings(nil) } label: {
         Image(systemName: "gearshape")
           .frame(width: 30, height: 30).terminalGlass(.init(cornerRadius: 15))
           .frame(width: 32, height: 40)

@@ -7,6 +7,8 @@ struct TradingWorkspaceApp: App {
   @State private var connections: ConnectionStore
   @State private var portfolio: PortfolioStore
   @State private var telegram = TelegramSession.shared
+  @State private var research = ResearchConversationStore()
+  @State private var wallet = WalletStore()
   init() {
     AppTypography.registerFonts()
     let connections = ConnectionStore()
@@ -21,6 +23,9 @@ struct TradingWorkspaceApp: App {
         .environment(connections)
         .environment(portfolio)
         .environment(telegram)
+        .environment(research)
+        .environment(wallet)
+        .task { await wallet.observeLocks() }
         .font(AppTypography.body)
     }
     .windowStyle(.hiddenTitleBar)
@@ -35,9 +40,6 @@ struct TradingWorkspaceApp: App {
     }
     .defaultSize(width: 760, height: 860)
 
-    Settings {
-      SettingsView().environment(connections).environment(telegram)
-    }
   }
 }
 
@@ -50,7 +52,7 @@ private final class WorkspaceAppDelegate: NSObject, NSApplicationDelegate {
     let telegram = TelegramSession.shared
     guard telegram.needsGracefulClose else { return .terminateNow }
     Task {
-      await telegram.close()
+      await telegram.prepareToQuit()
       sender.reply(toApplicationShouldTerminate: true)
     }
     return .terminateLater
@@ -63,9 +65,14 @@ private final class WorkspaceAppDelegate: NSObject, NSApplicationDelegate {
 private struct WorkspaceCommands: Commands {
   @Environment(\.openWindow) private var openWindow
   @FocusedValue(\.openAssetSearch) private var search
+  @FocusedValue(\.openWorkspaceSettings) private var settings
   @FocusedValue(\.workspaceStore) private var workspace
 
   var body: some Commands {
+    CommandGroup(replacing: .appSettings) {
+      Button("Settings…") { settings?() }
+        .keyboardShortcut(",").disabled(settings == nil)
+    }
     CommandMenu("Workspace") {
       Button("Search Assets…") { search?() }
         .keyboardShortcut("k").disabled(search == nil)

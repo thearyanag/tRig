@@ -1,5 +1,11 @@
 import SwiftUI
 
+private enum TradingOrderProvider: String, CaseIterable, Identifiable {
+  case jupiter = "Jupiter"
+  case flash = "Flash"
+  var id: Self { self }
+}
+
 private enum TradingDockTab: String, CaseIterable, Identifiable {
   case positions = "Positions"
   case orders = "Orders"
@@ -15,19 +21,25 @@ private enum TradingDockTab: String, CaseIterable, Identifiable {
   }
   var message: String {
     switch self {
-    case .positions: "Your positions will appear here when wallet connection is available."
-    case .orders: "Order execution is not available yet."
-    case .activity: "Wallet activity will appear here when wallet connection is available."
+    case .positions: "Connected portfolio holdings will appear here."
+    case .orders: "Add a tRig wallet to see its orders."
+    case .activity: "Wallet transactions will appear here."
     }
   }
 }
 
 struct TradingDockView: View {
   var portfolio: PortfolioStore? = nil
+  var wallet: WalletStore? = nil
   var selectedMint = ""
+  var selectedChain = "solana"
   var openHolding: (PortfolioHolding) -> Void = { _ in }
   @State private var selected: TradingDockTab = .positions
+  @State private var selectedOrderProvider: TradingOrderProvider?
   @SceneStorage("workspace.dockCollapsed") private var isCollapsed = false
+  private var orderProvider: TradingOrderProvider {
+    selectedOrderProvider ?? (selectedChain == "solana" ? .jupiter : .flash)
+  }
 
   var body: some View {
     VStack(spacing: 0) {
@@ -59,12 +71,29 @@ struct TradingDockView: View {
           .help(
             "Balances and marks come from the saved account snapshot, independently of the live chart and swap quote."
           )
-          if portfolio.market?.partial == true {
-            Text("Partial data").font(AppTypography.caption).foregroundStyle(.orange)
-              .help((portfolio.market?.warnings ?? []).joined(separator: "\n"))
-          }
         }
         Spacer()
+        if selected == .orders {
+          Picker("Order provider", selection: Binding(
+            get: { orderProvider }, set: { selectedOrderProvider = $0 })
+          ) {
+            ForEach(TradingOrderProvider.allCases) { Text($0.rawValue).tag($0) }
+          }
+          .labelsHidden().pickerStyle(.segmented).frame(width: 136)
+        }
+        if selected == .activity, let wallet,
+          !wallet.activity.entries.isEmpty || !wallet.trades.entries.isEmpty {
+          Button {
+            Task { await wallet.refreshActivity() }
+          } label: {
+            Image(systemName: "arrow.clockwise")
+              .frame(width: 30, height: 30).contentShape(Rectangle())
+          }
+          .buttonStyle(.plain)
+          .foregroundStyle(.secondary)
+          .accessibilityLabel("Refresh wallet activity")
+          .disabled(wallet.activity.refreshing || wallet.trades.refreshing)
+        }
         Button {
           isCollapsed.toggle()
         } label: {
@@ -81,9 +110,17 @@ struct TradingDockView: View {
         Divider()
         if selected == .positions, let portfolio {
           MarketPositionsView(
-            snapshot: portfolio.market, selectedMint: selectedMint,
-            loading: portfolio.isRefreshing || portfolio.isRestoringConnections,
+            snapshot: portfolio.market, selectedChain: selectedChain, selectedMint: selectedMint,
+            loading: portfolio.isRefreshing || portfolio.isRestoringConnections || portfolio.isWalletRefreshing,
             open: openHolding)
+        } else if selected == .activity, let wallet {
+          WalletMarketActivityView(wallet: wallet)
+        } else if selected == .orders, let wallet {
+          if orderProvider == .jupiter {
+            JupiterTriggerOrdersView(walletStore: wallet)
+          } else {
+            FlashOrdersView(walletStore: wallet)
+          }
         } else {
           HStack(spacing: 8) {
             ForEach(selected.columns, id: \.self) { column in
@@ -96,17 +133,14 @@ struct TradingDockView: View {
           Divider().padding(.horizontal, 16)
           HStack(spacing: 10) {
             Image(systemName: "wallet.bifold").foregroundStyle(.secondary)
-            VStack(alignment: .leading, spacing: 3) {
-              Text("No wallet connected").font(AppTypography.calloutMedium)
-              Text(selected.message).font(AppTypography.caption).foregroundStyle(.secondary)
-            }
+            Text(selected.message).font(AppTypography.callout).foregroundStyle(.secondary)
           }
           .frame(maxWidth: .infinity, maxHeight: .infinity)
           .padding(.horizontal, 16)
         }
       }
     }
-    .frame(height: isCollapsed ? 38 : selected == .positions && portfolio != nil ? 180 : 132)
+    .frame(height: isCollapsed ? 38 : 180)
     .background(TerminalStyle.canvas)
   }
 }

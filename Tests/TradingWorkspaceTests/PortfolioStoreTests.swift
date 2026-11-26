@@ -25,7 +25,7 @@ private func cachedPortfolio(_ value: String, period: PortfolioPeriod = .day) th
 {
   let snapshot: [String: Any] = [
     "scope": "all", "period": period.rawValue, "totalValueUsd": value, "holdings": [],
-    "history": [], "sourceCount": 1, "warnings": [], "partial": false, "asOf": 123,
+    "history": [], "sourceCount": 1, "warnings": [], "asOf": 123,
   ]
   return try JSONDecoder().decode(
     PortfolioCache.self,

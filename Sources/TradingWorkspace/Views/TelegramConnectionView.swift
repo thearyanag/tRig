@@ -9,25 +9,33 @@ struct TelegramSettingsRow: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
       HStack(spacing: 10) {
-        Image(systemName: "paperplane").foregroundStyle(.secondary)
+        SettingsServiceIcon(artwork: "telegram", symbol: "paperplane")
         Text("Telegram").font(AppTypography.bodySemibold)
         Spacer()
         switch session.phase {
         case .ready:
-          Label("Connected", systemImage: "checkmark.circle.fill")
-            .font(AppTypography.caption).foregroundStyle(.green)
+          SettingsConnectedBadge()
         case .closing:
           ProgressView().controlSize(.small)
         default:
-          Button("Connect Telegram", action: connect).buttonStyle(.bordered)
+          Button(action: connect) {
+            Text("Connect Telegram").settingsActionLabel()
+          }.buttonStyle(TerminalControlStyle.primary)
         }
       }
       if session.isConnected {
         HStack {
-          Text(session.accountName ?? "Connected account").lineLimit(1)
+          if let username = session.accountUsername, let destination = session.accountProfileURL {
+            SettingsProfileLink(
+              title: "@\(username)", service: "Telegram", destination: destination
+            )
+          } else {
+            Text(verbatim: session.accountName ?? "Connected account").lineLimit(1)
+          }
           Spacer()
-          Button("Disconnect") { session.disconnect() }.disabled(session.busy)
-            .controlSize(.small)
+          Button { session.disconnect() } label: {
+            Text("Disconnect").settingsActionLabel()
+          }.buttonStyle(TerminalControlStyle()).disabled(session.busy)
         }
         .font(AppTypography.callout)
       } else {
@@ -38,9 +46,7 @@ struct TelegramSettingsRow: View {
         Text(issue).font(AppTypography.caption).foregroundStyle(.orange)
       }
     }
-    .padding(16)
-    .background(TerminalStyle.panel, in: RoundedRectangle(cornerRadius: 8))
-    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(TerminalStyle.border))
+    .settingsCard()
   }
 }
 

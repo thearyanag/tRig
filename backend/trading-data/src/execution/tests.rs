@@ -15,6 +15,7 @@ fn chain(id: &str, provider_id: &str, vm: &str) -> Chain {
         deposit_enabled: true,
         native_token: None,
         minimum_order_usd: None,
+        rpc_url: None,
     }
 }
 fn token(address: &str, decimals: u8) -> Token {
@@ -67,14 +68,13 @@ fn unknown_signing_fields_are_rejected() {
     }
 }
 #[test]
-fn routing_uses_capabilities_without_a_product_chain_allowlist() {
+fn routing_uses_provider_capabilities_within_the_product_registry() {
     let mut r = request();
     assert_eq!(choose(&r), Provider::Jupiter);
-    r.output.chain = "eip155:999999".into();
+    r.output.chain = "eip155:8453".into();
     assert_eq!(choose(&r), Provider::Relay);
     r.order_type = OrderType::Limit;
     assert_eq!(choose(&r), Provider::Flash);
-    assert_eq!(chain_id("evm", 999999, "newchain"), "eip155:999999");
 }
 #[test]
 fn discovered_disabled_chains_and_cross_chain_conditions_are_rejected() {
@@ -176,12 +176,31 @@ fn flash_rejects_mismatched_orders_and_amounts() {
     assert!(normalize_flash(&v, &request(), token(USDC, 6), token(SOL, 9), 100).is_err());
 }
 #[test]
-fn flash_chain_discovery_uses_live_ids_and_minimums() {
-    let v = json!({"chains":[{"chain":"futurechain","chainId":998899,"minimumOrderNotionalUsd":"0.15"},{"chain":"solana","chainId":null}]});
+fn flash_chain_discovery_intersects_the_registry_and_keeps_provider_minimums() {
+    let v = json!({"chains":[
+        {"chain":"futurechain","chainId":998899,"minimumOrderNotionalUsd":"0.1"},
+        {"chain":"base","chainId":8453,"minimumOrderNotionalUsd":"0.15"},
+        {"chain":"solana","chainId":null},
+    ]});
     let s = flash_chains(&v, false).unwrap();
-    assert_eq!(s.chains[0].id, "eip155:998899");
+    assert_eq!(s.chains.len(), 2);
+    assert_eq!(s.chains[0].id, "eip155:8453");
     assert_eq!(s.chains[0].minimum_order_usd.as_deref(), Some("0.15"));
     assert_eq!(s.chains[1].id, "solana");
+}
+
+#[test]
+fn unconfigured_flash_schema_uses_canonical_network_ids() {
+    let v = json!({"components":{"schemas":{"Chain":{"enum":["base", "solana", "futurechain"]}}}});
+    let s = flash_chains(&v, true).unwrap();
+    assert_eq!(
+        s.chains
+            .iter()
+            .map(|chain| chain.id.as_str())
+            .collect::<Vec<_>>(),
+        ["eip155:8453", "solana"]
+    );
+    assert_eq!(s.chains[0].provider_id, "base");
 }
 
 #[test]

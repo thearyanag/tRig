@@ -28,7 +28,7 @@ enum FomoPortfolioBridge {
     }
     if (!identity) return {state: "anonymous"};
     let id = identity.fomoUserId;
-    if (identity.wallets?.solana?.address !== expectedWallet) throw new Error("Account changed");
+    if (identity.wallets?.solana?.address !== expectedWallet) return {state: "accountChanged"};
     const sessionIdentity = identity.fomoUserId ?? identity.privyDid;
     const isFrame = Boolean(id);
     if (!isFrame) {
@@ -38,47 +38,75 @@ enum FomoPortfolioBridge {
       const cache = Object.values(cacheModule).find(value => typeof value?.getQueryData === "function");
       const account = cache?.getQueryData(["account", "v3", identity.privyDid]);
       if (!account) return {state: "loading"};
-      if (!identity.wallets?.solana?.address || account.address !== identity.wallets.solana.address)
-        return {state: "unavailable"};
+      if (account.address !== expectedWallet) return {state: "accountChanged"};
       id = account.id;
     }
     if (typeof id !== "string" || !/^[0-9a-f-]{36}$/i.test(id)) return {state: "unavailable"};
     const fetchURL = moduleURL(isFrame ? "frameFetch" : "fomoFetch");
-    if (!fetchURL) throw new Error("Reader not ready");
+    if (!fetchURL) return {state: "loading"};
     const api = await import(fetchURL);
-    const chains = await import(moduleURL("chains"));
-    if (typeof api.f !== "function" || typeof chains.k !== "function" || typeof chains.bB !== "function" || typeof chains.l !== "string")
-      throw new Error("Portfolio reader needs an update");
+    if (typeof api.f !== "function") return {state: "readerChanged"};
+
+    // Request these networks and exclude their EVM cash tokens from spot equity.
+    // Solana USDC is the unified cash balance and is counted separately.
+    const hyperliquid = "1337";
+    const solanaUSDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+    const networks = new Map([
+      ["1", "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"],     // Ethereum
+      ["56", "0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d"],    // BNB Chain
+      ["143", "0x754704bc059f8c67012fed69bc8a327a5aafb603"],   // Monad
+      [hyperliquid, null],
+      ["4663", "0x5fc5360d0400a0fd4f2af552add042d716f1d168"],   // Robinhood Chain
+      ["5042", "0x3600000000000000000000000000000000000000"],   // Arc
+      ["8453", "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"],   // Base
+      ["99901", "0xb47c4c8f73f009cc0c0d3f92b388d13e293f0b65"],  // Elysium
+      ["1399811149", null],                                  // Solana
+    ]);
+    const chainIDs = [...networks.keys()];
+    const balancesChainHeader = chainIDs.join(",");
+    const historyChainHeader = chainIDs.filter(chain => chain !== hyperliquid).join(",");
     const previous = window.__trigPortfolioRead;
     previous?.controller?.abort();
     const controllerState = {id: readID, controller: new AbortController()};
     window.__trigPortfolioRead = controllerState;
-    const warnings = [];
-    async function get(path, headers = {}) {
+    async function get(path, chainHeader = historyChainHeader) {
       controllerState.controller.signal.throwIfAborted();
       const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 25000);
       const cancel = () => controller.abort();
       controllerState.controller.signal.addEventListener("abort", cancel, {once:true});
       try {
-        const result = await api.f(path, {method: "GET", headers, signal: controller.signal});
-        const body = isFrame ? (result.ok ? await result.json() : null) : result;
-        if (body?.success !== true || body.statusCode !== 200) throw new Error("Portfolio request failed");
+        const result = await api.f(path, {
+          method: "GET", headers: {"X-Supported-Chains": chainHeader}, signal: controller.signal
+        });
+        if (isFrame && !result?.ok) throw {status: result?.status};
+        const body = isFrame ? await result.json() : result;
+        if (body?.success !== true || body.statusCode !== 200) throw {status: body?.statusCode};
         return body.responseObject;
+      } catch (error) {
+        controllerState.controller.signal.throwIfAborted();
+        if (controller.signal.aborted) throw {state: "timeout"};
+        if (error instanceof SyntaxError) throw {state: "invalidResponse"};
+        const status = error?.status ?? error?.statusCode;
+        if (Number.isInteger(status) && status >= 400 && status <= 599)
+          throw {state: "apiError", status};
+        throw {state: "requestFailed"};
       } finally { clearTimeout(timer); controllerState.controller.signal.removeEventListener("abort", cancel); }
     }
-    const balances = await get("/v2/users/" + id + "/balances", {"X-Supported-Chains": chains.k(true)});
-    if (!Array.isArray(balances?.balances)) throw new Error("Invalid balance response");
+    let balances;
+    try { balances = await get("/v2/users/" + id + "/balances", balancesChainHeader); }
+    catch (failure) { controllerState.controller.signal.throwIfAborted(); return failure; }
+    if (!Array.isArray(balances?.balances)) return {state: "invalidResponse"};
     const seconds = {"1d":86400,"7d":604800,"30d":2592000};
     const now = Date.now(), start = now - (seconds[period] ?? 0) * 1000;
     const historyPath = period === "all"
       ? "/v2/userTokens/aggregatedSnapshot/interval?userId=" + id
       : "/v2/userTokens/aggregatedSnapshot?userId=" + id + "&timestamp=" + encodeURIComponent(new Date(start).toISOString()) + (period === "30d" ? "&interval=4" : "");
     let history = [], baseline = null;
-    try { history = await get(historyPath); } catch { controllerState.controller.signal.throwIfAborted(); warnings.push("Fomo's portfolio history could not refresh."); }
+    try { history = await get(historyPath); } catch { controllerState.controller.signal.throwIfAborted(); }
     if (period !== "all") {
       const snapshot = Math.floor(start / 3600000) * 3600;
       try { baseline = await get("/v2/userTokens/aggregatedSnapshotById?userId=" + id + "&snapshotId=" + snapshot + "&tradeType=both"); }
-      catch { controllerState.controller.signal.throwIfAborted(); warnings.push("Fomo's P&L baseline is unavailable for this period."); }
+      catch { controllerState.controller.signal.throwIfAborted(); }
     }
     function pick(value, keys) {
       if (!value || typeof value !== "object") return null;
@@ -87,6 +115,8 @@ enum FomoPortfolioBridge {
     const rows = balances.balances.slice(0,4000).map(row => {
       const token = row.tokenFilterResult?.token ?? {};
       const info = token.info ?? {};
+      const network = row.userToken?.networkId ?? token.networkId;
+      const address = row.balance?.tokenAddress ?? row.userToken?.tokenAddress;
       return {
         balance: pick(row.balance,["balance","shiftedBalance","address","tokenAddress"]),
         tokenFilterResult: {priceUSD: row.tokenFilterResult?.priceUSD,
@@ -95,14 +125,14 @@ enum FomoPortfolioBridge {
         userToken: pick(row.userToken,["networkId","tokenAddress","averageEntryPriceUsd","currentCostBasisUsd","currentRealizedPnlUsd","humanAmountRemaining"]),
         activeTrade: pick(row.activeTrade,["humanTokenAmount","displayAvgEntryPriceUsd","avgEntryPrice","realizedPnlUsd"]),
         valuation: pick(row.valuation,["includeInEquity","useLivePrice","includeRealizedPnl","includeUnrealizedPnl"]),
-        isCash: row.balance?.tokenAddress === chains.l,
-        excludedFromEquity: chains.bB(row.userToken?.networkId,row.balance?.tokenAddress)
+        isCash: address === solanaUSDC,
+        excludedFromEquity: typeof address === "string" &&
+          networks.get(String(network)) === address.toLowerCase()
       };
     });
     const cleaned = {
       balances: rows, otherEquity: balances.otherEquity, otherPnlV2: balances.otherPnlV2,
       livePerpPnl: balances.livePerpPnl,
-      nativeEvmBalances: (balances.nativeEvmBalances ?? []).map(() => ({present:true})),
       hyperliquidPerps: balances.hyperliquidPerps ? {
         ...pick(balances.hyperliquidPerps,["quoteBalance"]),
         marginSummary: pick(balances.hyperliquidPerps.marginSummary,["accountValue"]),
@@ -112,11 +142,11 @@ enum FomoPortfolioBridge {
     controllerState.controller.signal.throwIfAborted();
     const latestState = identityStore.getState(), latest = latestState?.snapshot ?? latestState?.session;
     if (latest?.status !== "authenticated" || (latest.fomoUserId ?? latest.privyDid) !== sessionIdentity || latest.wallets?.solana?.address !== expectedWallet)
-      throw new Error("Session changed during read");
+      return {state: "accountChanged"};
     return JSON.stringify({
       evmWallet: latest.wallets?.evm?.address ?? null,
       data: {balances:cleaned, history:Array.isArray(history) ? history.map(p => pick(p,["snapshotId","equity","pnl"])) : [],
-        baseline:pick(baseline,["pnl","equity","snapshotId"]),warnings}
+        baseline:pick(baseline,["pnl","equity","snapshotId"])}
     });
     """#
 }

@@ -6,6 +6,7 @@ struct PortfolioHistoryView: View {
   @Binding var period: PortfolioPeriod
   let loading: Bool
   let currentPeriod: Bool
+  var connectedAccountsOnly = false
   @State private var hovered: Int64?
 
   private var points: [PortfolioHistoryPoint] {
@@ -28,7 +29,8 @@ struct PortfolioHistoryView: View {
     let counts = segmentCounts
     VStack(alignment: .leading, spacing: 10) {
       HStack(spacing: 12) {
-        Text("Portfolio value").font(AppTypography.font(size: 16, weight: .semibold))
+        Text(connectedAccountsOnly ? "Connected account history" : "Portfolio value")
+          .font(AppTypography.font(size: 16, weight: .semibold))
         Spacer()
         HStack(spacing: 2) {
           ForEach(PortfolioPeriod.allCases) { value in

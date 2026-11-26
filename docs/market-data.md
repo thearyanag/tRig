@@ -1,20 +1,20 @@
 # Market data and multichain terminal
 
-The native terminal shares one app-owned Rust loopback service. All features remain
-quotes only: no wallet authorization, transaction construction, signing or order
-submission is exposed to the app.
+The native terminal uses an app-owned Rust loopback service for market data,
+wallet networks, quotes, and supported trade execution.
 
 ## Discovery and identity
 
-`GET /api/markets/networks` returns Relay's enabled Solana/EVM networks, joined to
-GeckoTerminal's supported networks through CoinGecko asset-platform chain IDs.
-Flash conditional coverage is separate. Names and guessed network slugs are not
-used as chain identities. The catalog caches for one hour. Known mappings open
-immediately while the live platform/network join refreshes in the background. Its
-last known mapping is retained on failure, with a verified 2026-11-21 public-ID
-snapshot for cold starts (`network-market-map.json`). Degraded discovery retries
-after one minute; successful live discovery replaces the snapshot and can add
-new chains. A missing Relay catalog produces a retryable error.
+`backend/trading-data/src/chain-registry.json` defines Solana and the 21 EVM
+networks offered by Markets, Wallet, and Quotes. It uses public Relay metadata
+for canonical chain IDs, native currencies, RPCs, and explorers, and includes
+each network's starting GeckoTerminal mapping. Wallet discovery and Relay's
+chain picker use the bundled registry directly. Flash quote coverage is
+intersected with the registry.
+
+`GET /api/markets/networks` caches the catalog for one hour. GeckoTerminal may
+refresh chart mappings for registered networks in the background. Failed
+refreshes retain the bundled or saved mapping and retry after one minute.
 
 `GET /api/assets/search?q=...&chain=all` searches pools and Relay token metadata.
 A selected chain narrows discovery; exact addresses keep their network. Resolve
@@ -29,9 +29,8 @@ identities, so matching contracts on different networks stay separate.
 
 Default EVM pay tokens come from verified chain-specific USDC metadata, falling
 back to the chain's native currency. The native token selector can choose a
-counter-token on another supported chain; Relay estimates the cross-chain route.
-Public sender/recipient context is required when the route needs it. This does
-not connect or authorize a wallet.
+counter-token on another supported chain. Relay uses the funding wallet and
+recipient address to quote and review supported cross-chain routes.
 
 ## Durable lookup cache
 

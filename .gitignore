@@ -4,4 +4,8 @@
 /.swiftpm/
 /dist/
 /backend/trading-data/target/
+/backend/wallet-signer/target/
+/backend/wallet-swap-policy/target/
+/backend/wallet-transfers/target/
 /chart-host/node_modules/
+/research-host/node_modules/

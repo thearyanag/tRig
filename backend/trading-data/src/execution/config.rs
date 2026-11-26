@@ -7,6 +7,7 @@ pub struct Config {
     jupiter: Option<String>,
     relay: Option<String>,
     flash: Option<String>,
+    flash_solana_group: Option<String>,
 }
 impl Config {
     pub fn load(path: Option<&Path>) -> std::io::Result<Self> {
@@ -30,6 +31,7 @@ impl Config {
             jupiter: get("JUPITER_API_KEY"),
             relay: get("RELAY_API_KEY"),
             flash: get("FLASH_API_KEY"),
+            flash_solana_group: get("FLASH_SOLANA_TRADING_GROUP"),
         };
         if [Provider::Jupiter, Provider::Relay, Provider::Flash]
             .iter()
@@ -55,12 +57,18 @@ impl Config {
     pub fn ready(&self, p: Provider) -> bool {
         p == Provider::Jupiter || self.key(p).is_some()
     }
+    pub fn flash_solana_group(&self) -> Option<&str> {
+        self.flash_solana_group
+            .as_deref()
+            .filter(|value| super::amounts::address("svm", value))
+    }
     #[cfg(test)]
     pub fn test() -> Self {
         Self {
             jupiter: None,
             relay: Some("test-key".into()),
             flash: Some("test-key".into()),
+            flash_solana_group: None,
         }
     }
 }
@@ -73,7 +81,14 @@ fn parse(text: &str) -> HashMap<String, String> {
             }
             let (key, value) = line.split_once('=')?;
             let key = key.trim();
-            if !["JUPITER_API_KEY", "RELAY_API_KEY", "FLASH_API_KEY"].contains(&key) {
+            if ![
+                "JUPITER_API_KEY",
+                "RELAY_API_KEY",
+                "FLASH_API_KEY",
+                "FLASH_SOLANA_TRADING_GROUP",
+            ]
+            .contains(&key)
+            {
                 return None;
             }
             let value = value.trim();

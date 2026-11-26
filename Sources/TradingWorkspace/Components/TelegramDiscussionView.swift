@@ -16,6 +16,7 @@ struct TelegramDiscussionView: View {
 
   let asset: Asset
   let session: TelegramSession
+  @Environment(\.openWorkspaceSettings) private var openSettings
   @State private var request = Request()
   @State private var loadedScope: Scope?
   @State private var page: TelegramDiscussionPage?
@@ -106,7 +107,7 @@ struct TelegramDiscussionView: View {
     VStack(alignment: .leading, spacing: 10) {
       Text("See what your Telegram chats are saying about \(asset.symbol).")
         .font(AppTypography.callout).foregroundStyle(.secondary)
-      SettingsLink { Text("Connect Telegram") }
+      Button("Connect Telegram") { openSettings(.connections) }
         .buttonStyle(TerminalControlStyle()).controlSize(.small)
     }
     .padding(.vertical, 4)

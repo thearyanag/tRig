@@ -5,7 +5,9 @@ struct PortfolioHoldingsView: View {
   let snapshot: PortfolioSnapshot?
   let loading: Bool
   let connected: Bool
+  var walletScope = false
   let open: (PortfolioHolding) -> Void
+  @Environment(\.openWorkspaceSettings) private var openSettings
   @State private var search = ""
   @State private var hideSmall = false
   @State private var sort: PortfolioSort = .valueDescending
@@ -80,7 +82,9 @@ struct PortfolioHoldingsView: View {
               Text(emptyTitle).font(AppTypography.font(size: 16, weight: .semibold))
               Text(emptyMessage).font(AppTypography.font(size: 14)).foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
-              if !connected { SettingsLink { Text("Open Settings") }.buttonStyle(.bordered) }
+              if !connected && !walletScope {
+                Button("Open Settings") { openSettings(.connections) }.buttonStyle(.bordered)
+              }
             }
             .padding(24).frame(maxWidth: .infinity, maxHeight: .infinity)
           }
@@ -250,14 +254,17 @@ struct PortfolioHoldingsView: View {
   }
   private var emptyTitle: String {
     if loading { return "Loading holdings…" }
-    if !connected { return "Connect an account" }
+    if !connected { return walletScope ? "Add a tRig wallet" : "Connect an account" }
     if !search.isEmpty || hideSmall { return "No matching assets" }
     if snapshot == nil || snapshot?.sourceCount == 0 { return "Portfolio unavailable" }
     return "No holdings"
   }
   private var emptyMessage: String {
-    if loading { return "Reading the connected accounts." }
-    if !connected { return "Connect Pumpfun or Fomo in Settings to view your portfolio." }
+    if loading { return walletScope ? "Reading wallet balances." : "Reading account balances." }
+    if !connected {
+      return walletScope ? "Create or import a wallet from the Wallet menu."
+        : "Use a tRig wallet or connect Pumpfun or Fomo in Settings to view your portfolio."
+    }
     if !search.isEmpty || hideSmall { return "Try another search or include small balances." }
     if snapshot == nil || snapshot?.sourceCount == 0 {
       return "Open the data notice for details, then refresh to retry."

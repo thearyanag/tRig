@@ -23,10 +23,11 @@ struct AssetSearchView: View {
   private var term: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
   private var displayed: [Asset] {
     if submittedQuery == term { return results }
-    return workspace.watchlist.filter {
-      (chain == "all" || $0.chainID == chain)
-        && (term.isEmpty || $0.symbol.localizedCaseInsensitiveContains(term)
-          || $0.name.localizedCaseInsensitiveContains(term) || $0.id == term)
+    return workspace.watchlist.filter { asset in
+      (asset.isSolana || networks.networks.contains { $0.id == asset.chainID })
+        && (chain == "all" || asset.chainID == chain)
+        && (term.isEmpty || asset.symbol.localizedCaseInsensitiveContains(term)
+          || asset.name.localizedCaseInsensitiveContains(term) || asset.id == term)
     }
   }
   private var selected: Asset? {
@@ -54,7 +55,7 @@ struct AssetSearchView: View {
     }
     .defaultFocus($searchFocused, true)
     .onAppear {
-      chain = initialChain
+      chain = onSelect == nil ? "all" : initialChain
       selection = displayed.first?.identity
     }
     .task {
@@ -63,6 +64,12 @@ struct AssetSearchView: View {
       guard !Task.isCancelled else { return }
       searchFocused = true
       await networks.load()
+      if !networks.networks.isEmpty && chain != "all" && chain != "solana"
+        && !networks.networks.contains(where: { $0.id == chain })
+      {
+        chain = "all"
+      }
+      if selected == nil { selection = displayed.first?.identity }
     }
     .onChange(of: query) { _, _ in resetSearch() }
     .onChange(of: chain) { _, _ in resetSearch() }
@@ -89,30 +96,7 @@ struct AssetSearchView: View {
           move(-1)
           return .handled
         }
-      Menu {
-        Picker("Network", selection: $chain) {
-          Text("All networks").tag("all")
-          if !networks.networks.contains(where: { $0.id == "solana" }) {
-            Text("Solana").tag("solana")
-          }
-          ForEach(networks.networks) { Text($0.name).tag($0.id) }
-        }
-        .pickerStyle(.inline)
-      } label: {
-        HStack(spacing: 6) {
-          Image(systemName: "line.3.horizontal.decrease").font(.system(size: 10, weight: .medium))
-          Text(networkName).lineLimit(1)
-          Image(systemName: "chevron.down").font(.system(size: 8, weight: .semibold))
-        }
-        .font(AppTypography.caption)
-        .padding(.horizontal, 8).frame(height: 26)
-        .background(TerminalStyle.canvas.opacity(0.65), in: Capsule())
-        .terminalGlass(.init(cornerRadius: 13))
-      }
-      .menuStyle(.borderlessButton).menuIndicator(.hidden)
-      .fixedSize()
-      .accessibilityLabel("Network")
-      .accessibilityValue(networkName)
+      if onSelect != nil { networkMenu }
     }
     .padding(.horizontal, 10).frame(height: 38)
     .background(TerminalStyle.field.opacity(0.68), in: RoundedRectangle(cornerRadius: 9))
@@ -120,6 +104,33 @@ struct AssetSearchView: View {
       RoundedRectangle(cornerRadius: 9).strokeBorder(
         searchFocused ? TerminalStyle.accent.opacity(0.56) : TerminalStyle.border)
     }
+  }
+
+  private var networkMenu: some View {
+    Menu {
+      Picker("Network", selection: $chain) {
+        Text("All networks").tag("all")
+        if !networks.networks.contains(where: { $0.id == "solana" }) {
+          Text("Solana").tag("solana")
+        }
+        ForEach(networks.networks) { Text($0.name).tag($0.id) }
+      }
+      .pickerStyle(.inline)
+    } label: {
+      HStack(spacing: 6) {
+        Image(systemName: "line.3.horizontal.decrease").font(.system(size: 10, weight: .medium))
+        Text(networkName).lineLimit(1)
+        Image(systemName: "chevron.down").font(.system(size: 8, weight: .semibold))
+      }
+      .font(AppTypography.caption)
+      .padding(.horizontal, 8).frame(height: 26)
+      .background(TerminalStyle.canvas.opacity(0.65), in: Capsule())
+      .terminalGlass(.init(cornerRadius: 13))
+    }
+    .menuStyle(.borderlessButton).menuIndicator(.hidden)
+    .fixedSize()
+    .accessibilityLabel("Network")
+    .accessibilityValue(networkName)
   }
 
   @ViewBuilder private var resultsContent: some View {

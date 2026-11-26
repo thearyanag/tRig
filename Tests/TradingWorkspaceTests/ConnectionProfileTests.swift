@@ -21,6 +21,23 @@ private func connectionCookie(
   #expect(ConnectionService.fomo.homeURL.host == "fomo.family")
   #expect(ConnectionService.pump.homeURL.host == "pump.fun")
 }
+
+@Test func profileLinksUseHandlesForFomoAndWalletsForPumpfun() {
+  let profile = ConnectedProfile(username: "_test.trader", wallet: connectionWallet, checkedAt: Date())
+  #expect(ConnectionService.fomo.profileURL(for: profile)?.absoluteString
+    == "https://fomo.family/profile/_test.trader")
+  #expect(ConnectionService.pump.profileURL(for: profile)?.absoluteString
+    == "https://pump.fun/profile/\(connectionWallet)")
+
+  let unnamed = ConnectedProfile(username: nil, wallet: connectionWallet, checkedAt: Date())
+  #expect(ConnectionService.fomo.profileURL(for: unnamed) == nil)
+  #expect(ConnectionService.pump.profileURL(for: unnamed) == ConnectionService.pump.profileURL(for: profile))
+
+  let invalid = ConnectedProfile(username: "../settings", wallet: "../settings", checkedAt: Date())
+  #expect(ConnectionService.fomo.profileURL(for: invalid) == nil)
+  #expect(ConnectionService.pump.profileURL(for: invalid) == nil)
+}
+
 @Test func pumpConnectionOnlyUsesItsScopedLiveCookie() throws {
   let chosen = try ConnectionProfileRules.pumpCookie(in: [
     connectionCookie(domain: ".google.com"), connectionCookie(name: "privy-token"),

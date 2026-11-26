@@ -30,11 +30,7 @@ PLIST="$APP/Contents/Info.plist"
 plutil -lint "$PLIST"
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$PLIST")"
 
-# Sign nested Mach-O code first. Sign the main app last to seal resources.
-for BIN in "$APP/Contents/Frameworks/libtdjson.dylib" "$APP/Contents/Helpers/trading-data-service"; do
-  codesign --force --options runtime --timestamp --sign "$IDENTITY" "$BIN"
-done
-codesign --force --options runtime --timestamp --sign "$IDENTITY" "$APP"
+"$ROOT/script/sign_app.sh" "$APP" "$IDENTITY" --timestamp
 codesign --verify --deep --strict "$APP"
 
 ln -s /Applications "$WORK/staging/Applications"

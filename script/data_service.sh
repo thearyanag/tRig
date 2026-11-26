@@ -17,10 +17,28 @@ sync_chart() {
   rsync -a --delay-updates --delete-after "$ROOT_DIR/.build/chart-host/" "$SERVICE_DIR/Chart/"
 }
 
+sync_research() {
+  local source="$ROOT_DIR/research-host" target="$SERVICE_DIR/ResearchHost" node_binary file
+  node_binary="$(command -v node)"
+  mkdir -p -m 700 "$target"
+  if [[ ! -d "$target/node_modules/acpx" ]] || ! cmp -s "$source/package-lock.json" "$target/package-lock.json"; then
+    npm ci --prefix "$source" --ignore-scripts --no-audit --no-fund --prefer-offline
+    mkdir -p "$target/node_modules"
+    rsync -a --delay-updates --delete-after "$source/node_modules/" "$target/node_modules/"
+    install -m 600 "$source/package-lock.json" "$target/package-lock.json"
+  fi
+  for file in research-messages.mjs research-tools.mjs mcp-stdio.mjs host.mjs; do
+    install -m 600 "$source/$file" "$target/$file.new"
+    mv -f "$target/$file.new" "$target/$file"
+  done
+  printf '%s\n' "$node_binary" > "$target/node-path"
+}
+
 build_binary() {
   local stage
   cargo build --manifest-path "$ROOT_DIR/backend/trading-data/Cargo.toml" --locked
   mkdir -p -m 700 "$SERVICE_DIR"
+  sync_research
   stage="$(mktemp "$SERVICE_DIR/.trading-data-service.XXXXXX")"
   if ! install -m 700 "$ROOT_DIR/backend/trading-data/target/debug/trading-data-service" "$stage" \
     || ! mv -f "$stage" "$BINARY"; then

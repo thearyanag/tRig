@@ -83,7 +83,7 @@ fn lot(
 fn is_cash(mint: &str, _symbol: &str) -> bool {
     mint == USDC
 }
-fn finish(mut snapshot: Snapshot, input: &ProviderInput) -> Snapshot {
+fn finish(mut snapshot: Snapshot) -> Snapshot {
     for lot in &mut snapshot.lots {
         let qty = lot
             .quantity
@@ -109,23 +109,8 @@ fn finish(mut snapshot: Snapshot, input: &ProviderInput) -> Snapshot {
                 .and_then(|(p, b)| percent(p, b)),
         );
     }
-    if input.stale {
-        snapshot.partial = true;
-        snapshot.warnings.push(format!(
-            "{} is showing its last successful refresh.",
-            input.source.name()
-        ));
-    }
-    for warning in input.data["warnings"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
-    {
-        snapshot.warnings.push(warning.chars().take(240).collect());
-    }
     if let Some(total) = &snapshot.total {
-        let now = input.fetched_at as i64;
+        let now = snapshot.fetched_at as i64;
         if snapshot.history.last().is_some_and(|p| p.time <= now) {
             snapshot.history.retain(|p| p.time < now);
             snapshot.history.push(Point {
@@ -134,8 +119,6 @@ fn finish(mut snapshot: Snapshot, input: &ProviderInput) -> Snapshot {
             });
         }
     }
-    snapshot.warnings.sort();
-    snapshot.warnings.dedup();
     snapshot
 }
 pub fn snapshot(input: ProviderInput) -> Result<Snapshot, String> {
@@ -164,17 +147,14 @@ pub fn snapshot(input: ProviderInput) -> Result<Snapshot, String> {
         total: None,
         pnl: None,
         pnl_percent: None,
-        unrealized: None,
         lots: Vec::new(),
         history: Vec::new(),
-        warnings: Vec::new(),
-        partial: false,
     };
     let result = match input.source {
         Source::Pump => pump(&input, empty)?,
         Source::Fomo => fomo(&input, empty)?,
     };
-    Ok(finish(result, &input))
+    Ok(finish(result))
 }
 fn pump(input: &ProviderInput, mut out: Snapshot) -> Result<Snapshot, String> {
     let summary = &input.data["summary"];
@@ -187,44 +167,16 @@ fn pump(input: &ProviderInput, mut out: Snapshot) -> Result<Snapshot, String> {
     out.total = nonnegative(&summary["totalValueUsd"]);
     out.pnl = number(&summary["pnl"]["usd"]);
     out.pnl_percent = number(&summary["percentage"]["usd"]);
-    if summary["unpriced"].as_bool() == Some(true)
-        || summary["unpricedCount"].as_u64().unwrap_or(0) > 0
-    {
-        out.partial = true;
-        out.warnings
-            .push("Pumpfun reports assets with missing prices.".into());
-    }
-    if summary["reprice"]["unrepriced"]
-        .as_array()
-        .is_some_and(|v| !v.is_empty())
-    {
-        out.partial = true;
-        out.warnings
-            .push("Some Pumpfun holdings could not be repriced.".into());
-    }
-    if input.data["positionsComplete"].as_bool() != Some(true) {
-        out.partial = true;
-        out.warnings
-            .push("Pumpfun position history is still incomplete.".into());
-    }
     let mut lots = BTreeMap::new();
-    let mut unrealized = N::zero();
-    let mut any_pnl = false;
     for row in rows.iter().take(4000) {
         if row["assetClass"]
             .as_str()
             .is_some_and(|v| v.contains("PERPETUAL") || v.contains("PREDICTION"))
             || !row["perp"].is_null()
         {
-            out.partial = true;
-            out.warnings.push(
-                "Non-spot exposure is included in platform totals but not expanded in Holdings."
-                    .into(),
-            );
             continue;
         }
         let Some(mint) = row["coinMint"].as_str().filter(|s| !s.is_empty()) else {
-            out.partial = true;
             continue;
         };
         let Some(qty) = nonnegative(&row["amountHeld"]).filter(|n| n > &N::zero()) else {
@@ -261,8 +213,6 @@ fn pump(input: &ProviderInput, mut out: Snapshot) -> Result<Snapshot, String> {
                 entry.cost_basis_usd = Some(text(&cost));
                 if let Some(value) = nonnegative(&row["valueUsd"]) {
                     let pnl = value - cost;
-                    unrealized += &pnl;
-                    any_pnl = true;
                     entry.pnl_usd = Some(text(&pnl));
                 }
             }
@@ -280,7 +230,6 @@ fn pump(input: &ProviderInput, mut out: Snapshot) -> Result<Snapshot, String> {
                 .push("Below the platform's dust threshold.".into());
         }
         if entry.value_usd.is_none() {
-            out.partial = true;
             entry.warnings.push("Current value is unavailable.".into());
         }
         lots.insert(entry.id.clone(), entry);
@@ -358,21 +307,7 @@ fn pump(input: &ProviderInput, mut out: Snapshot) -> Result<Snapshot, String> {
             lots.insert(entry.id.clone(), entry);
         }
     }
-    out.unrealized = if any_pnl {
-        Some(unrealized)
-    } else if lots.is_empty() {
-        Some(N::zero())
-    } else {
-        None
-    };
     out.lots = lots.into_values().collect();
-    if out
-        .lots
-        .iter()
-        .any(|l| !is_cash(&l.mint, &l.symbol) && l.mint != "native:solana" && l.pnl_usd.is_none())
-    {
-        out.unrealized = None;
-    }
     out.history = history(&input.data["history"], "time", "value");
     Ok(out)
 }
@@ -382,8 +317,6 @@ fn fomo(input: &ProviderInput, mut out: Snapshot) -> Result<Snapshot, String> {
     let mut equity = number(&body["otherEquity"]).unwrap_or_default();
     let mut pnl = number(&body["otherPnlV2"]).unwrap_or_default()
         + number(&body["livePerpPnl"]).unwrap_or_default();
-    let mut unrealized = N::zero();
-    let mut any_pnl = false;
     let mut incomplete_pnl = false;
     for row in rows.iter().take(4000) {
         if row["excludedFromEquity"].as_bool() == Some(true) {
@@ -395,7 +328,6 @@ fn fomo(input: &ProviderInput, mut out: Snapshot) -> Result<Snapshot, String> {
             .or_else(|| row["userToken"]["tokenAddress"].as_str())
             .unwrap_or("");
         if mint.is_empty() {
-            out.partial = true;
             continue;
         }
         let qty = amount(&row["balance"]["balance"], token["decimals"].as_u64())
@@ -441,8 +373,6 @@ fn fomo(input: &ProviderInput, mut out: Snapshot) -> Result<Snapshot, String> {
         if include || cash {
             if let Some(value) = &value {
                 equity += value;
-            } else {
-                out.partial = true;
             }
         } else {
             entry
@@ -474,11 +404,8 @@ fn fomo(input: &ProviderInput, mut out: Snapshot) -> Result<Snapshot, String> {
                 if let (Some(price), Some(basis), Some(tracked)) = (&price, basis_price, tracked) {
                     let value = tracked * (price - basis);
                     pnl += &value;
-                    unrealized += &value;
-                    any_pnl = true;
                     entry.pnl_usd = Some(text(&value));
                 } else {
-                    out.partial = true;
                     incomplete_pnl = true;
                     entry
                         .warnings
@@ -493,7 +420,6 @@ fn fomo(input: &ProviderInput, mut out: Snapshot) -> Result<Snapshot, String> {
             }
         }
         if entry.value_usd.is_none() {
-            out.partial = true;
             entry.warnings.push("Current value is unavailable.".into());
         }
         out.lots.push(entry);
@@ -501,13 +427,6 @@ fn fomo(input: &ProviderInput, mut out: Snapshot) -> Result<Snapshot, String> {
     let perps = &body["hyperliquidPerps"];
     if perps.is_object() {
         let positions = perps["positions"].as_array();
-        if positions.is_some_and(|p| !p.is_empty()) {
-            out.partial = true;
-            out.warnings.push(
-                "Perpetual exposure is included in platform totals but not expanded in Holdings."
-                    .into(),
-            );
-        }
         if let Some(value) = nonnegative(&perps["marginSummary"]["accountValue"]) {
             equity += value;
         } else if let Some(quote) = number(&perps["quoteBalance"]) {
@@ -531,36 +450,10 @@ fn fomo(input: &ProviderInput, mut out: Snapshot) -> Result<Snapshot, String> {
             }
             if complete {
                 equity += value;
-            } else {
-                out.partial = true;
-                out.warnings
-                    .push("Some perp equity could not be priced.".into());
             }
-        } else {
-            out.partial = true;
-            out.warnings
-                .push("Perp account value is unavailable.".into());
         }
     }
-    if rows.len() >= 4000 {
-        out.partial = true;
-        out.warnings
-            .push("Some Fomo balances are not loaded.".into());
-    }
-    if body["nativeEvmBalances"]
-        .as_array()
-        .is_some_and(|v| !v.is_empty())
-    {
-        out.partial = true;
-        out.warnings
-            .push("Additional native balances need valuation coverage.".into());
-    }
     out.total = Some(equity);
-    out.unrealized = if !incomplete_pnl && (any_pnl || out.lots.is_empty()) {
-        Some(unrealized)
-    } else {
-        None
-    };
     out.pnl = if incomplete_pnl {
         None
     } else if input.period == Period::All {
@@ -568,15 +461,7 @@ fn fomo(input: &ProviderInput, mut out: Snapshot) -> Result<Snapshot, String> {
     } else {
         number(&input.data["baseline"]["pnl"]).map(|base| pnl - base)
     };
-    if out.pnl.is_none() {
-        out.warnings
-            .push("Fomo's P&L baseline is unavailable for this period.".into());
-    }
     out.history = history(&input.data["history"], "snapshotId", "equity");
-    if out.partial {
-        out.warnings
-            .push("Fomo has incomplete pricing or valuation coverage.".into());
-    }
     Ok(out)
 }
 

@@ -15,7 +15,8 @@ struct PortfolioSidebarView: View {
             scope = item
           } label: {
             HStack(spacing: 12) {
-              Image(systemName: "square.3.layers.3d").frame(width: 18)
+              Image(systemName: item == .wallet ? "wallet.bifold" : "square.3.layers.3d")
+                .frame(width: 18)
               Text(item.name).font(AppTypography.font(size: 15, weight: .medium))
               Spacer()
             }

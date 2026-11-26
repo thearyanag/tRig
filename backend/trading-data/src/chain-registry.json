@@ -1,0 +1,380 @@
+{
+  "source": "https://api.relay.link/chains",
+  "capturedAt": 1795692548,
+  "chains": [
+    {
+      "id": 792703809,
+      "name": "solana",
+      "displayName": "Solana",
+      "vmType": "svm",
+      "disabled": false,
+      "depositEnabled": true,
+      "httpRpcUrl": "https://api.mainnet-beta.solana.com",
+      "explorerUrl": "https://solscan.io",
+      "currency": {
+        "address": "11111111111111111111111111111111",
+        "name": "Solana",
+        "symbol": "SOL",
+        "decimals": 9
+      },
+      "geckoNetwork": "solana"
+    },
+    {
+      "id": 4663,
+      "name": "robinhood",
+      "displayName": "Robinhood Chain",
+      "vmType": "evm",
+      "disabled": false,
+      "depositEnabled": true,
+      "httpRpcUrl": "https://rpc.mainnet.chain.robinhood.com",
+      "explorerUrl": "https://robin.etherscan.io",
+      "currency": {
+        "address": "0x0000000000000000000000000000000000000000",
+        "name": "Ether",
+        "symbol": "ETH",
+        "decimals": 18
+      },
+      "geckoNetwork": "robinhood"
+    },
+    {
+      "id": 999,
+      "name": "hyperevm",
+      "displayName": "HyperEVM",
+      "vmType": "evm",
+      "disabled": false,
+      "depositEnabled": true,
+      "httpRpcUrl": "https://rpc.hyperliquid.xyz/evm",
+      "explorerUrl": "https://hyperevmscan.io",
+      "currency": {
+        "address": "0x0000000000000000000000000000000000000000",
+        "name": "HYPE",
+        "symbol": "HYPE",
+        "decimals": 18
+      },
+      "geckoNetwork": "hyperevm"
+    },
+    {
+      "id": 8453,
+      "name": "base",
+      "displayName": "Base",
+      "vmType": "evm",
+      "disabled": false,
+      "depositEnabled": true,
+      "httpRpcUrl": "https://base.drpc.org",
+      "explorerUrl": "https://basescan.org",
+      "currency": {
+        "address": "0x0000000000000000000000000000000000000000",
+        "name": "Ether",
+        "symbol": "ETH",
+        "decimals": 18
+      },
+      "geckoNetwork": "base"
+    },
+    {
+      "id": 56,
+      "name": "bsc",
+      "displayName": "BNB",
+      "vmType": "evm",
+      "disabled": false,
+      "depositEnabled": true,
+      "httpRpcUrl": "https://bsc-rpc.publicnode.com",
+      "explorerUrl": "https://bscscan.com",
+      "currency": {
+        "address": "0x0000000000000000000000000000000000000000",
+        "name": "Binance Coin",
+        "symbol": "BNB",
+        "decimals": 18
+      },
+      "geckoNetwork": "bsc"
+    },
+    {
+      "id": 1,
+      "name": "ethereum",
+      "displayName": "Ethereum",
+      "vmType": "evm",
+      "disabled": false,
+      "depositEnabled": true,
+      "httpRpcUrl": "https://ethereum.publicnode.com",
+      "explorerUrl": "https://etherscan.io",
+      "currency": {
+        "address": "0x0000000000000000000000000000000000000000",
+        "name": "Ether",
+        "symbol": "ETH",
+        "decimals": 18
+      },
+      "geckoNetwork": "eth"
+    },
+    {
+      "id": 5042,
+      "name": "arc",
+      "displayName": "Arc",
+      "vmType": "evm",
+      "disabled": false,
+      "depositEnabled": true,
+      "httpRpcUrl": "https://rpc.mainnet.arc.io",
+      "explorerUrl": "https://explorer.arc.io",
+      "currency": {
+        "address": "0x0000000000000000000000000000000000000000",
+        "name": "USD Coin (Gas Currency)",
+        "symbol": "USDC",
+        "decimals": 18
+      },
+      "geckoNetwork": "arc"
+    },
+    {
+      "id": 4326,
+      "name": "megaeth",
+      "displayName": "MegaETH",
+      "vmType": "evm",
+      "disabled": false,
+      "depositEnabled": true,
+      "httpRpcUrl": "https://mainnet.megaeth.com/rpc",
+      "explorerUrl": "https://megaeth.blockscout.com",
+      "currency": {
+        "address": "0x0000000000000000000000000000000000000000",
+        "name": "Ether",
+        "symbol": "ETH",
+        "decimals": 18
+      },
+      "geckoNetwork": "megaeth"
+    },
+    {
+      "id": 196,
+      "name": "xlayer",
+      "displayName": "X Layer",
+      "vmType": "evm",
+      "disabled": false,
+      "depositEnabled": true,
+      "httpRpcUrl": "https://rpc.xlayer.tech",
+      "explorerUrl": "https://xlayerscan.com",
+      "currency": {
+        "address": "0x0000000000000000000000000000000000000000",
+        "name": "OKB",
+        "symbol": "OKB",
+        "decimals": 18
+      },
+      "geckoNetwork": "x-layer"
+    },
+    {
+      "id": 143,
+      "name": "monad",
+      "displayName": "Monad",
+      "vmType": "evm",
+      "disabled": false,
+      "depositEnabled": true,
+      "httpRpcUrl": "https://rpc3.monad.xyz",
+      "explorerUrl": "https://monadvision.com",
+      "currency": {
+        "address": "0x0000000000000000000000000000000000000000",
+        "name": "Monad",
+        "symbol": "MON",
+        "decimals": 18
+      },
+      "geckoNetwork": "monad"
+    },
+    {
+      "id": 137,
+      "name": "polygon",
+      "displayName": "Polygon",
+      "vmType": "evm",
+      "disabled": false,
+      "depositEnabled": true,
+      "httpRpcUrl": "https://polygon-bor-rpc.publicnode.com",
+      "explorerUrl": "https://polygonscan.com",
+      "currency": {
+        "address": "0x0000000000000000000000000000000000000000",
+        "name": "POL",
+        "symbol": "POL",
+        "decimals": 18
+      },
+      "geckoNetwork": "polygon_pos"
+    },
+    {
+      "id": 42161,
+      "name": "arbitrum",
+      "displayName": "Arbitrum",
+      "vmType": "evm",
+      "disabled": false,
+      "depositEnabled": true,
+      "httpRpcUrl": "https://arbitrum-one.publicnode.com",
+      "explorerUrl": "https://arbiscan.io",
+      "currency": {
+        "address": "0x0000000000000000000000000000000000000000",
+        "name": "Ether",
+        "symbol": "ETH",
+        "decimals": 18
+      },
+      "geckoNetwork": "arbitrum"
+    },
+    {
+      "id": 10,
+      "name": "optimism",
+      "displayName": "Optimism",
+      "vmType": "evm",
+      "disabled": false,
+      "depositEnabled": true,
+      "httpRpcUrl": "https://optimism.publicnode.com",
+      "explorerUrl": "https://optimistic.etherscan.io",
+      "currency": {
+        "address": "0x0000000000000000000000000000000000000000",
+        "name": "Ether",
+        "symbol": "ETH",
+        "decimals": 18
+      },
+      "geckoNetwork": "optimism"
+    },
+    {
+      "id": 43114,
+      "name": "avalanche",
+      "displayName": "Avalanche",
+      "vmType": "evm",
+      "disabled": false,
+      "depositEnabled": true,
+      "httpRpcUrl": "https://api.avax.network/ext/bc/C/rpc",
+      "explorerUrl": "https://snowtrace.io",
+      "currency": {
+        "address": "0x0000000000000000000000000000000000000000",
+        "name": "Avax",
+        "symbol": "AVAX",
+        "decimals": 18
+      },
+      "geckoNetwork": "avax"
+    },
+    {
+      "id": 99901,
+      "name": "elysium",
+      "displayName": "Elysium",
+      "vmType": "evm",
+      "disabled": false,
+      "depositEnabled": true,
+      "httpRpcUrl": "https://rpc.elysium.kinetiq.xyz",
+      "explorerUrl": "https://elysium.kinetiq.xyz/explorer",
+      "currency": {
+        "address": "0x0000000000000000000000000000000000000000",
+        "name": "HYPE",
+        "symbol": "HYPE",
+        "decimals": 18
+      },
+      "geckoNetwork": "elysium"
+    },
+    {
+      "id": 9745,
+      "name": "plasma",
+      "displayName": "Plasma",
+      "vmType": "evm",
+      "disabled": false,
+      "depositEnabled": true,
+      "httpRpcUrl": "https://rpc.plasma.to",
+      "explorerUrl": "https://plasmascan.to",
+      "currency": {
+        "address": "0x0000000000000000000000000000000000000000",
+        "name": "XPL",
+        "symbol": "XPL",
+        "decimals": 18
+      },
+      "geckoNetwork": "plasma"
+    },
+    {
+      "id": 5000,
+      "name": "mantle",
+      "displayName": "Mantle",
+      "vmType": "evm",
+      "disabled": false,
+      "depositEnabled": true,
+      "httpRpcUrl": "https://rpc.mantle.xyz",
+      "explorerUrl": "https://mantlescan.xyz",
+      "currency": {
+        "address": "0x0000000000000000000000000000000000000000",
+        "name": "MNT",
+        "symbol": "MNT",
+        "decimals": 18
+      },
+      "geckoNetwork": "mantle"
+    },
+    {
+      "id": 25,
+      "name": "cronos",
+      "displayName": "Cronos",
+      "vmType": "evm",
+      "disabled": false,
+      "depositEnabled": true,
+      "httpRpcUrl": "https://cronos.drpc.org",
+      "explorerUrl": "https://cronoscan.com",
+      "currency": {
+        "address": "0x0000000000000000000000000000000000000000",
+        "name": "Cronos",
+        "symbol": "CRO",
+        "decimals": 18
+      },
+      "geckoNetwork": "cro"
+    },
+    {
+      "id": 146,
+      "name": "sonic",
+      "displayName": "Sonic",
+      "vmType": "evm",
+      "disabled": false,
+      "depositEnabled": true,
+      "httpRpcUrl": "https://rpc.soniclabs.com",
+      "explorerUrl": "https://sonicscan.org",
+      "currency": {
+        "address": "0x0000000000000000000000000000000000000000",
+        "name": "S",
+        "symbol": "S",
+        "decimals": 18
+      },
+      "geckoNetwork": "sonic"
+    },
+    {
+      "id": 80094,
+      "name": "berachain",
+      "displayName": "Berachain",
+      "vmType": "evm",
+      "disabled": false,
+      "depositEnabled": true,
+      "httpRpcUrl": "https://rpc.berachain.com/",
+      "explorerUrl": "https://beratrail.io",
+      "currency": {
+        "address": "0x0000000000000000000000000000000000000000",
+        "name": "BERA Token",
+        "symbol": "BERA",
+        "decimals": 18
+      },
+      "geckoNetwork": "berachain"
+    },
+    {
+      "id": 130,
+      "name": "unichain",
+      "displayName": "Unichain",
+      "vmType": "evm",
+      "disabled": false,
+      "depositEnabled": true,
+      "httpRpcUrl": "https://mainnet.unichain.org",
+      "explorerUrl": "https://uniscan.xyz",
+      "currency": {
+        "address": "0x0000000000000000000000000000000000000000",
+        "name": "Ether",
+        "symbol": "ETH",
+        "decimals": 18
+      },
+      "geckoNetwork": "unichain"
+    },
+    {
+      "id": 57073,
+      "name": "ink",
+      "displayName": "Ink",
+      "vmType": "evm",
+      "disabled": false,
+      "depositEnabled": true,
+      "httpRpcUrl": "https://ink.drpc.org",
+      "explorerUrl": "https://explorer.inkonchain.com",
+      "currency": {
+        "address": "0x0000000000000000000000000000000000000000",
+        "name": "Ether",
+        "symbol": "ETH",
+        "decimals": 18
+      },
+      "geckoNetwork": "ink"
+    }
+  ]
+}

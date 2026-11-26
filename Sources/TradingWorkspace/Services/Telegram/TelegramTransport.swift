@@ -58,6 +58,7 @@ final class TDLibRuntime: @unchecked Sendable {
   private let receive: Receive
   private let execute: Execute
   private let stopped = NSLock()
+  private let readerLifetime = DispatchGroup()
   private var didStop = false
 
   init(library: URL) throws {
@@ -99,7 +100,13 @@ final class TDLibRuntime: @unchecked Sendable {
       guard let self else { return }
       stopped.withLock { didStop = true }
     }
-    Thread.detachNewThread { [self] in
+    readerLifetime.enter()
+    // Foundation runs this entry point on a native thread, outside Swift's executors.
+    let readPackets: @Sendable () -> Void = { [self] in
+      defer {
+        continuation.finish()
+        readerLifetime.leave()
+      }
       let decoder = JSONDecoder()
       while !stopped.withLock({ didStop }) {
         guard let bytes = receive(1) else { continue }
@@ -108,9 +115,16 @@ final class TDLibRuntime: @unchecked Sendable {
           continuation.yield(packet)
         }
       }
-      continuation.finish()
     }
+    Thread.detachNewThread(readPackets)
     return stream
+  }
+
+  func stopReader() async {
+    stopped.withLock { didStop = true }
+    await withCheckedContinuation { continuation in
+      readerLifetime.notify(queue: .global()) { continuation.resume() }
+    }
   }
 }
 
@@ -139,6 +153,11 @@ final class TelegramTransport: TelegramRequesting {
   }
 
   deinit { reader?.cancel() }
+
+  func shutdown() async {
+    reader?.cancel()
+    await runtime.stopReader()
+  }
 
   func startClient() {
     precondition(clientID == nil)

@@ -5,13 +5,21 @@ edition = "2021"
 
 [dependencies]
 axum = "=0.8.8"
+base64 = "=0.22.1"
 bigdecimal = { version = "=0.4.11", features = ["serde"] }
 bs58 = "=0.5.1"
 chrono = { version = "=0.4.45", default-features = false, features = ["std"] }
+hex = "=0.4.3"
+k256 = "=0.13.4"
 libc = "=0.2.190"
-reqwest = { version = "=0.12.28", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "=0.12.28", default-features = false, features = ["json", "rustls-tls", "stream"] }
+rlp = "=0.6.1"
 rusqlite = { version = "=0.37.0", features = ["bundled"] }
 serde = { version = "=1.0.228", features = ["derive"] }
 serde_json = "=1.0.149"
-tokio = { version = "=1.53.2", features = ["macros", "rt-multi-thread", "net", "signal", "time", "sync"] }
+tokio = { version = "=1.53.2", features = ["macros", "rt-multi-thread", "net", "process", "signal", "time", "sync"] }
 tower-http = { version = "=0.6.11", features = ["fs"] }
+trig-wallet-transfers = { path = "../wallet-transfers" }
+trig-wallet-swap-policy = { path = "../wallet-swap-policy" }
+sha3 = "=0.10.8"
+sha2 = "=0.10.9"

@@ -5,7 +5,7 @@ pub mod service;
 #[cfg(test)]
 mod tests;
 pub mod types;
-use crate::AppState;
+use crate::{chain_registry, AppState};
 use axum::{extract::State, http::StatusCode, Json};
 use reqwest::Method;
 use types::*;
@@ -93,6 +93,16 @@ pub async fn quote(
 pub async fn fetch(state: &AppState, mut r: QuoteRequest) -> Result<Quote> {
     r.amount = r.amount.trim().to_string();
     amounts::validate(&r)?;
+    if [&r.input, &r.output]
+        .iter()
+        .any(|token| chain_registry::get(&token.chain).is_none())
+    {
+        return Err(Error::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "unsupported_chain",
+            "Choose a supported tRig network.",
+        ));
+    }
     let preferred = choose(&r);
     let candidates = if r.provider.is_some() {
         vec![preferred]

@@ -1,14 +1,17 @@
 import SwiftUI
 
 struct LimitOrderTicketView: View {
+  @Environment(WalletStore.self) private var walletStore: WalletStore?
   let asset: Asset
   @Binding var trade: TradeDraft
   @Binding var limit: LimitOrderDraft
   let referencePrice: Double?
   @State private var store = ExecutionQuoteStore()
   @State private var showDetails = false
+  @State private var fundingWalletID: UUID?
   @FocusState private var amountFocused: Bool
   private var request: ExecutionQuoteRequest { limit.request(asset: asset, trade: trade) }
+  private var fundingFamily: WalletFamily? { asset.isSolana ? .solana : FlashOrderAction.family(for: request) }
   private var tint: Color { trade.side == .buy ? TerminalStyle.buy : TerminalStyle.sell }
   private var priceBinding: Binding<String> {
     Binding(get: { limit.priceText }, set: { limit.setPrice($0) })
@@ -27,8 +30,14 @@ struct LimitOrderTicketView: View {
                 trade.amountText, isUSDC: trade.side == .buy, referencePrice: referencePrice) : nil,
             amountFocused: $amountFocused,
             selectToken: { trade.selectQuoteSide($0 ? .buy : .sell) },
-            submit: { store.load(request) })
+            submit: {
+              amountFocused = false
+              if !asset.isSolana { store.load(request) }
+            })
           targetPrice
+          if let fundingFamily, walletStore != nil {
+            WalletFundingPicker(family: fundingFamily, selection: $fundingWalletID)
+          }
           VStack(spacing: 8) {
             row("At limit · before fees", localReceive)
             if let quote {
@@ -52,7 +61,7 @@ struct LimitOrderTicketView: View {
           }
           .padding(10).background(TerminalStyle.field.opacity(0.5))
           .overlay { Rectangle().strokeBorder(TerminalStyle.border) }
-          DisclosureGroup("Quote details", isExpanded: $showDetails) {
+          DisclosureGroup(asset.isSolana ? "Order settings" : "Quote details", isExpanded: $showDetails) {
             VStack(alignment: .leading, spacing: 10) {
               slippage
               if let quote {
@@ -69,7 +78,7 @@ struct LimitOrderTicketView: View {
                 ForEach(quote.warnings, id: \.self) { warning in
                   Text(warning).font(AppTypography.caption).foregroundStyle(.secondary)
                 }
-              } else {
+              } else if !asset.isSolana {
                 Text("A supported route is selected automatically when you preview.")
                   .font(AppTypography.caption).foregroundStyle(.secondary)
               }
@@ -84,28 +93,46 @@ struct LimitOrderTicketView: View {
       }
       .safeAreaInset(edge: .bottom, spacing: 0) {
         VStack(alignment: .leading, spacing: 8) {
-          Button {
-            amountFocused = false
-            store.load(request)
-          } label: {
-            HStack(spacing: 6) {
-              if store.isLoading { ProgressView().controlSize(.mini) }
-              Text(
-                store.isLoading
-                  ? "Getting quote…" : "Preview limit \(trade.side.rawValue.lowercased())")
+          if !asset.isSolana {
+            Button {
+              amountFocused = false
+              store.load(request)
+            } label: {
+              HStack(spacing: 6) {
+                if store.isLoading { ProgressView().controlSize(.mini) }
+                Text(
+                  store.isLoading
+                    ? "Getting quote…" : "Preview limit \(trade.side.rawValue.lowercased())")
+              }
+              .font(AppTypography.bodySemibold).frame(maxWidth: .infinity).frame(height: 40)
             }
-            .font(AppTypography.bodySemibold).frame(maxWidth: .infinity).frame(height: 40)
+            .buttonStyle(TerminalControlStyle.primary)
+            .disabled(!request.isValid || store.isLoading)
           }
-          .buttonStyle(TerminalControlStyle.primary)
-          .disabled(!request.isValid || store.isLoading)
-          Text("Quote preview only. No order will be placed.")
-            .font(AppTypography.caption).foregroundStyle(.secondary)
+          if let fundingFamily,
+            let walletStore,
+            let (wallet, account) = walletStore.funding(walletID: fundingWalletID, family: fundingFamily)
+          {
+            if asset.isSolana {
+              JupiterTriggerOrderAction(
+                asset: asset, request: request, walletStore: walletStore, wallet: wallet, account: account,
+                title: "limit \(trade.side.rawValue.lowercased())")
+            } else {
+              FlashOrderAction(
+                asset: asset, request: request, walletStore: walletStore, wallet: wallet, account: account,
+                label: "Review funded limit")
+            }
+          } else {
+            Text(asset.isSolana ? "Add a Solana wallet to place orders." : "Quote preview only for this pair or wallet.")
+              .font(AppTypography.caption).foregroundStyle(.secondary)
+          }
         }.padding(12).background(TerminalStyle.quotePanel)
           .overlay(alignment: .top) { Divider() }
       }
     }
     .font(AppTypography.body)
     .onChange(of: request) { _, value in store.requestDidChange(value) }
+    .onChange(of: fundingFamily) { _, _ in fundingWalletID = nil }
     .onDisappear { store.clear() }
   }
 

@@ -1,9 +1,14 @@
 import SwiftUI
 
-/// Native quote ticket for chain-aware token pairs. No wallet is connected here.
+/// Native quote ticket for chain-aware token pairs.
 struct EVMMarketQuoteView: View {
   let asset: Asset
   @Binding var trade: TradeDraft
+  let openRoutes: () -> Void
+  @Environment(WalletStore.self) private var walletStore: WalletStore?
+  @Environment(PortfolioStore.self) private var portfolio: PortfolioStore?
+  @State private var fundingWalletID: UUID?
+  @State private var fundFromWallet = true
   @State private var counterAsset: Asset?
   @State private var showPicker = false
   @State private var sender = ""
@@ -19,19 +24,30 @@ struct EVMMarketQuoteView: View {
   private var inputAsset: Asset? { trade.side == .buy ? counter : asset }
   private var outputAsset: Asset? { trade.side == .buy ? asset : counter }
   private var crossChain: Bool { inputAsset?.chainID != outputAsset?.chainID }
+  private var fundingFamily: WalletFamily { inputAsset?.chainID == "solana" ? .solana : .evm }
+  private var funding: (wallet: TradingWallet, account: WalletAccount)? {
+    guard fundFromWallet else { return nil }
+    return walletStore?.funding(walletID: fundingWalletID, family: fundingFamily)
+  }
+  private var destinationAddress: String? {
+    guard crossChain, let funding else { return nil }
+    let family: WalletFamily = outputAsset?.chainID == "solana" ? .solana : .evm
+    return funding.wallet.accounts.first { $0.family == family }?.address
+  }
   private var request: ExecutionQuoteRequest {
     ExecutionQuoteRequest(
-      provider: nil, side: trade.side.rawValue.lowercased(),
+      provider: funding == nil ? nil : .relay, side: trade.side.rawValue.lowercased(),
       input: .init(chain: inputAsset?.chainID ?? "", address: inputAsset?.id ?? ""),
       output: .init(chain: outputAsset?.chainID ?? "", address: outputAsset?.id ?? ""),
       amount: trade.quoteAmount, orderType: .market,
       slippageBps: trade.slippage.basisPoints,
       context: .init(
-        sender: sender.isEmpty ? nil : sender, recipient: recipient.isEmpty ? nil : recipient))
+        sender: funding?.account.address ?? (sender.isEmpty ? nil : sender),
+        recipient: recipient.isEmpty ? destinationAddress : recipient))
   }
   private var validContext: Bool {
-    Asset.validAddress(sender, chain: request.input.chain)
-      && (!crossChain || Asset.validAddress(recipient, chain: request.output.chain))
+    Asset.validAddress(request.context.sender ?? "", chain: request.input.chain)
+      && (!crossChain || Asset.validAddress(request.context.recipient ?? "", chain: request.output.chain))
   }
   var body: some View {
     TimelineView(.periodic(from: .now, by: 1)) { clock in
@@ -46,6 +62,11 @@ struct EVMMarketQuoteView: View {
               .focused($amountFocused).accessibilityLabel(
                 "Quote amount in \(inputAsset?.symbol ?? "pay token")")
           }.padding(10).background(TerminalStyle.field, in: RoundedRectangle(cornerRadius: fieldRadius))
+          if let funding, let inputAsset, let balance = portfolio?.walletBalance(
+            chain: inputAsset.chainID, mint: inputAsset.id, account: funding.account)
+          {
+            row("Wallet balance", "\(PortfolioFormat.quantity(balance)) \(inputAsset.symbol)")
+          }
           Text("Receive estimate").font(AppTypography.caption).foregroundStyle(.secondary)
           HStack {
             token(outputAsset, selectable: trade.side == .sell)
@@ -62,21 +83,29 @@ struct EVMMarketQuoteView: View {
             .font(AppTypography.caption).foregroundStyle(.secondary)
           }
           VStack(alignment: .leading, spacing: 5) {
-            Text("Public sender address").font(AppTypography.caption).foregroundStyle(.secondary)
-            TextField("Address on \(inputAsset?.network ?? asset.network)", text: $sender)
-              .textFieldStyle(.plain).padding(8)
-              .background(TerminalStyle.field, in: RoundedRectangle(cornerRadius: fieldRadius))
-              .accessibilityLabel("Public sender address for quote")
+            if let walletStore, walletStore.wallets.contains(where: { wallet in
+              wallet.accounts.contains { $0.family == fundingFamily }
+            }) {
+              Toggle("Fund from tRig wallet", isOn: $fundFromWallet)
+                .toggleStyle(.switch).controlSize(.small).font(AppTypography.caption)
+            }
+            if let walletStore, funding != nil {
+              WalletFundingPicker(family: fundingFamily, selection: $fundingWalletID)
+                .environment(walletStore)
+            } else {
+              Text("Public sender address").foregroundStyle(.secondary)
+              TextField("Address on \(inputAsset?.network ?? asset.network)", text: $sender)
+                .textFieldStyle(.plain).padding(8)
+                .background(TerminalStyle.field, in: RoundedRectangle(cornerRadius: fieldRadius))
+                .accessibilityLabel("Public sender address for quote")
+            }
             if crossChain {
-              Text("Public destination address").font(AppTypography.caption).foregroundStyle(
-                .secondary)
-              TextField("Address on \(outputAsset?.network ?? asset.network)", text: $recipient)
+              Text("Destination address").foregroundStyle(.secondary)
+              TextField(destinationAddress ?? "Address on \(outputAsset?.network ?? asset.network)", text: $recipient)
                 .textFieldStyle(.plain).padding(8)
                 .background(TerminalStyle.field, in: RoundedRectangle(cornerRadius: fieldRadius))
                 .accessibilityLabel("Public destination address for quote")
             }
-            Text("Used to estimate the route. No wallet is connected or authorized.")
-              .font(AppTypography.caption).foregroundStyle(.secondary)
           }
           Picker("Slippage", selection: $trade.slippage) {
             ForEach(SlippagePreset.allCases) { Text($0.rawValue).tag($0) }
@@ -112,6 +141,8 @@ struct EVMMarketQuoteView: View {
             Text(error).font(AppTypography.caption).foregroundStyle(.orange).fixedSize(
               horizontal: false, vertical: true)
           }
+          Button("Cross-chain & advanced…", action: openRoutes)
+            .buttonStyle(.link).font(AppTypography.caption)
         }.padding(12)
       }
       .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -125,17 +156,27 @@ struct EVMMarketQuoteView: View {
           }.buttonStyle(TerminalControlStyle.primary)
           .disabled(
             !request.isValid || !validContext || store.isLoading || asset.marketQuotes == false)
-          Text(
-            asset.marketQuotes == false
-              ? "Market quotes are unavailable on this network." : "Quote only. No order is placed."
-          )
-          .font(AppTypography.caption).foregroundStyle(.secondary)
+          if let quote, quote.provider == .relay, let funding, let walletStore {
+            if fundingFamily == .evm {
+              RelayExecutionButton(request: request, wallet: funding.wallet, account: funding.account,
+                quote: quote).environment(walletStore).id(quote.id)
+            } else {
+              RelaySolanaExecutionButton(request: request, wallet: funding.wallet, account: funding.account,
+                quote: quote).environment(walletStore).id(quote.id)
+            }
+          } else if asset.marketQuotes == false {
+            Text("Market quotes are unavailable on this network.")
+              .font(AppTypography.caption).foregroundStyle(.secondary)
+          }
         }.padding(12).background(TerminalStyle.quotePanel).overlay(alignment: .top) { Divider() }
       }
     }
     .font(AppTypography.body)
     .onChange(of: request) { _, value in store.requestDidChange(value) }
-    .onChange(of: request.input.chain) { _, _ in sender = "" }
+    .onChange(of: request.input.chain) { _, _ in
+      sender = ""
+      fundingWalletID = nil
+    }
     .onChange(of: request.output.chain) { _, _ in recipient = "" }
     .onDisappear { store.clear() }
     .sheet(isPresented: $showPicker) {

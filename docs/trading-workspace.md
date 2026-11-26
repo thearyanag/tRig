@@ -45,12 +45,13 @@ toggle at the top left beside Workspace, a full-height
 left pane with asset identity, context and watchlist, separate 76-point identity
 and 64-point market-stat rows, a dominant chart and a 280–320-point quote panel.
 Token artwork comes from discovery metadata; Backpack artwork is also bundled.
-24h volume refers to the selected chart source. High/low cells remain unavailable
-until their data integration is added. Positions, Orders and
+24h volume refers to the selected chart source. High and low appear when
+the rolling range is available. Positions, Orders and
 Activity share a compact bottom dock; its chevron collapses the dock to the tab
-strip. Positions shows the complete cached holdings across connected accounts,
-with the selected asset first and expandable source rows. Orders and Activity
-retain empty states because execution is not available. Research and AI are outside this layout pass.
+strip. Positions combines tRig wallet holdings with connected accounts,
+with the selected asset first and expandable source rows. Orders tracks Jupiter
+Trigger and Flash orders. Activity tracks wallet transfers, approvals, swaps,
+bridges, and vault transactions.
 
 Use **Command-K** or the toolbar search button to search names/tickers or paste
 a Solana contract address. Watchlisted matches are available immediately; press
@@ -65,24 +66,22 @@ On reopening, market routing is refreshed before showing the chart. Live prices
 are never restored as if fresh. Quote callbacks are checked against mint and
 route so late responses cannot leak into another asset's view.
 
-The main ticket uses real, read-only Jupiter Swap API V2 quotes for the selected
+The Solana ticket uses Jupiter Swap API V2 quotes for the selected
 asset against USDC. Enter an input amount, choose Buy/Sell and slippage, then
-press **Get quote**. Quote review has no signing or execution controls.
+press **Get quote**. A tRig wallet can review and confirm supported swaps.
 The ticket uses rectangular Buy/Sell controls, From/To token rows and a compact
 price/minimum/impact/fee summary. Token menus switch the USDC/selected-asset pair;
 changing sides clears the input amount. Reversing a matching fresh quote carries
 its receive amount into the new input token; reversing without one clears it.
 USD captions use the displayed reference market price and are approximate.
-The main ticket keeps its Jupiter market quote path. **Cross-chain & advanced
-quotes…** opens the shared route composer for Jupiter, Relay and Definitive Flash;
-**Limit** changes the ticket in place and adds a draggable draft-price line to
-Vela. Native price entry and chart dragging share the same draft; inline
-previews use the server's conditional quote route. **TP/SL** selects the Sell
-ticket's inline exit previews: separate target prices and token quantities, two
-draggable chart lines, and individual quote results. Each exit can be disabled.
-These are independent estimates, without linked orders or position reservation.
-Funding, signing and execution remain deferred. See [quote-providers.md](quote-providers.md) for access, capabilities,
-quote semantics and live validation.
+**Cross-chain & advanced…** opens the route composer for Jupiter, Relay and
+Definitive Flash. **Limit** adds a draggable draft-price line to Vela. **TP/SL**
+gives each exit its own target price, quantity, and chart line. Solana conditionals
+use Jupiter Trigger V2 with automatic wallet sign-in after unlock. The review
+shows the deposit into the wallet’s Privy-managed vault. Use **Orders → Jupiter**
+to track an order or review its withdrawal after cancellation or expiry.
+Supported EVM conditionals use Flash. See [quote-providers.md](quote-providers.md)
+for the quote API contracts.
 **Workspace → Component Gallery** (`Shift-Command-G`) retains the old sample
 ticket for component fixtures and includes a separate live Swap quotes tab.
 
@@ -180,11 +179,10 @@ and 24h/7d/All history.
 - A 20-second **app freshness window** controls quote review; this is not a price
   guarantee from Jupiter. Refresh stale quotes. Any amount, side, slippage or
   asset change clears the previous quote, and late replies are discarded.
-- No wallet balance is displayed. Percentage/max sizing and fake balances are
-  removed from the main ticket. Wallet-dependent network/rent costs are not
-  estimated; the quote-only API's zero wallet-fee fields are not presented as free gas.
+- The ticket shows the funding wallet’s available balance when loaded. The swap
+  review validates the wallet, exact input, minimum output, and network costs.
 - Local endpoint: `GET /api/swap/quote?assetMint=...&side=buy&amount=100&slippageBps=50`.
-  Unknown wallet fields are rejected. There is no swap build, signing or execute endpoint.
+  Wallet-bound review and submission use separate Jupiter swap endpoints.
 
 ## Chart data and lifecycle
 
@@ -215,19 +213,26 @@ Use these commands to work on the development service independently of the Mac a
 ./script/data_service.sh uninstall  # Unload it and remove its login registration
 ```
 
+## Asset research in development builds
+
+Rebuild the service with `./script/data_service.sh build` using Node.js 22.13 or later. The build stages the pinned ACPX helper alongside the LaunchAgent. In **Settings → AI Providers**, check an existing sign-in for Codex, Grok Build, or Antigravity. Ask a question in the floating bar at the bottom of Markets. The conversation opens upward and stays attached to the bar. tRig restores one conversation from Application Support and keeps its provider fixed after the first message. Each new message uses the market open when it was sent. The selected provider receives the question, the open market’s identity, and the results of the read-only MCP tools it calls.
+
 ## Checks
 
 ```sh
 swift test
 cargo test --manifest-path backend/trading-data/Cargo.toml --locked
+cargo test --manifest-path backend/wallet-signer/Cargo.toml --locked
 node --test Tests/ChartHost/*.test.cjs Tests/ConnectionHost/*.test.cjs
+node --test research-host/*.test.mjs
 ```
 
 Rust checks cover interval mapping, ranges, candle validation, portfolio accounting,
 source isolation, exact quantities, shared-wallet deduplication and history bounds.
 Chart-host checks cover ordered refreshes, exclusive boundaries, errors and
-background/unsubscribe behaviour. No wallet signing or execution endpoint is part of this integration. Provider
-API keys are read only by the local Rust quote service from private configuration.
+background/unsubscribe behaviour. The local signer checks wallet operations
+against the reviewed transactions. Provider API keys are read by the local
+Rust service from private configuration.
 
 ## Multichain market terminal
 
@@ -236,4 +241,4 @@ FDV, liquidity and asset links. A collapsible Recent trades panel sits beside th
 chart. Native search and token selectors support Solana and provider-supported
 EVM networks with chain badges and separate quote/chart capabilities. See
 [market-data.md](market-data.md) for API contracts, identity, cache and freshness
-semantics. All order types remain quote previews.
+semantics.

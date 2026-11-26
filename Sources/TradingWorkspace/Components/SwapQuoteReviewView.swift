@@ -19,7 +19,7 @@ struct SwapQuoteReviewView: View {
         row("Venues", quote.routes.isEmpty ? quote.router : quote.routes.joined(separator: " · "))
         Divider()
         Text(
-          "No wallet is connected. This preview cannot sign or submit a transaction. Wallet-dependent fees and costs are not estimated."
+          "Quote preview only. Wallet-dependent fees and costs are not estimated."
         )
         .font(AppTypography.callout).foregroundStyle(.secondary)
         HStack {

@@ -1,3 +1,4 @@
+import PortfolioPulseSupport
 import SwiftUI
 
 struct WorkspaceView: View {
@@ -9,12 +10,20 @@ struct WorkspaceView: View {
   @Environment(\.scenePhase) private var scenePhase
   @Environment(ConnectionStore.self) private var connections
   @Environment(TelegramSession.self) private var telegram
+  @Environment(ResearchConversationStore.self) private var research
+  @Environment(WalletStore.self) private var wallet
   @AppStorage("workspace.completedWelcomeTour.v1") private var completedWelcomeTour = false
   @State private var welcomeStep: WorkspaceOnboardingStep = .markets
+  @State private var openPortfolioAfterWelcome = false
   @SceneStorage("workspace.section") private var sectionRaw = WorkspaceSection.markets.rawValue
   @State private var marketOpenTask: Task<Void, Never>?
   @State private var marketOpenError: String?
   @State private var showSearch = false
+  @State private var showSettings = false
+  @AppStorage("settings.selectedSection") private var settingsSection = WorkspaceSettingsSection.connections.rawValue
+  @State private var showSupport = false
+  @SceneStorage("workspace.researchExpanded") private var researchExpanded = false
+  @State private var researchDraft = ""
   @SceneStorage("workspace.sidebarVisible") private var showSidebar = true
   @SceneStorage("workspace.contextVisible") private var showContext = false
   @State private var draft = TradeDraft()
@@ -39,7 +48,8 @@ struct WorkspaceView: View {
   private var content: some View {
     VStack(spacing: 0) {
       WorkspaceTopBar(
-        showSidebar: $showSidebar, section: sectionBinding, openSearch: { showSearch = true })
+        showSidebar: $showSidebar, section: sectionBinding,
+        marketNetwork: workspace.selectedAsset.chainID, openSearch: { showSearch = true })
       if section == .portfolio {
         PortfolioView(
           store: portfolio, showSidebar: showSidebar, workspace: workspace,
@@ -48,6 +58,7 @@ struct WorkspaceView: View {
         HStack(spacing: 0) {
           if showSidebar {
             WorkspaceSidebarView(workspace: workspace, selection: selection, showContext: $showContext,
+              showSupport: $showSupport,
               telegram: telegram) { showSearch = true }
               .frame(width: 304)
             Divider()
@@ -55,7 +66,28 @@ struct WorkspaceView: View {
           tradingLayout(workspace.selectedAsset).frame(
             minWidth: 760, maxWidth: .infinity, maxHeight: .infinity)
         }
+        .overlay(alignment: .bottom) {
+          if ResearchProvider.enabledInBuild {
+            ResearchPanelView(
+              asset: workspace.selectedAsset, expanded: $researchExpanded, question: $researchDraft)
+              .padding(.horizontal, 16).padding(.bottom, 10)
+          }
+        }
       }
+    }
+    .overlayPreferenceValue(SupportButtonBounds.self) { anchor in
+      if let anchor {
+        GeometryReader { proxy in
+          let button = proxy[anchor]
+          SupportPanelView(isOpen: $showSupport)
+            .padding(.leading, button.minX)
+            .padding(.bottom, proxy.size.height - button.minY + 8)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+        }
+      }
+    }
+    .onChange(of: section == .markets && showSidebar) { _, hasSidebar in
+      if !hasSidebar { showSupport = false }
     }
   }
 
@@ -88,9 +120,40 @@ struct WorkspaceView: View {
     return { showSearch = true }
   }
 
-  var body: some View {
+  private var settingsCommand: (() -> Void)? {
+    guard completedWelcomeTour, !showSearch, !showSettings else { return nil }
+    return { openSettings(nil) }
+  }
+
+  private func openSettings(_ section: WorkspaceSettingsSection?) {
+    if let section { settingsSection = section.rawValue }
+    showSettings = true
+  }
+
+  private var workspaceWithSheets: some View {
     workspaceWithWelcome
+      .environment(\.openWorkspaceSettings) { section in openSettings(section) }
+      .focusedSceneValue(\.openAssetSearch, searchCommand)
+      .focusedSceneValue(\.openWorkspaceSettings, settingsCommand)
+      .focusedSceneValue(\.workspaceStore, completedWelcomeTour ? workspace : nil)
+      .sheet(isPresented: $showSearch) {
+        AssetSearchView(
+          workspace: workspace, onOpen: { sectionRaw = WorkspaceSection.markets.rawValue })
+      }
+      .sheet(isPresented: $showSettings) {
+        SettingsView()
+      }
+  }
+
+  var body: some View {
+    workspaceWithSheets
       .task { portfolio.start(connections) }
+      .task(id: WalletPortfolioRefresh(wallets: wallet.wallets, refreshID: wallet.balanceRefreshID)) {
+        await portfolio.refreshWallets(wallet.wallets)
+      }
+      .task(id: completedWelcomeTour) {
+        if completedWelcomeTour && ResearchProvider.enabledInBuild { await research.restore() }
+      }
       .onChange(of: backend.baseURL) { _, url in
         guard url != nil else { return }
         if marketError != nil { resolveID = UUID() }
@@ -103,16 +166,28 @@ struct WorkspaceView: View {
       }
       .toolbar(.hidden, for: .windowToolbar)
       .ignoresSafeArea(.container, edges: .top)
-      .focusedSceneValue(\.openAssetSearch, searchCommand)
-      .focusedSceneValue(\.workspaceStore, completedWelcomeTour ? workspace : nil)
-      .sheet(isPresented: $showSearch) {
-        AssetSearchView(
-          workspace: workspace, onOpen: { sectionRaw = WorkspaceSection.markets.rawValue })
+      .onOpenURL { url in
+        guard url == PortfolioPulseSnapshot.portfolioURL else { return }
+        if completedWelcomeTour {
+          sectionRaw = WorkspaceSection.portfolio.rawValue
+        } else {
+          openPortfolioAfterWelcome = true
+        }
       }
       .task(id: section.rawValue + String(workspace.selectionVersion) + resolveID.uuidString) {
         if section == .markets { await prepareMarket() }
       }
       .task(id: marketPollID) { await pollMarket() }
+      .task(id: scenePhase != .background) {
+        guard scenePhase != .background else { return }
+        while !Task.isCancelled {
+          if wallet.activity.entries.contains(where: { $0.status == .pending })
+            || wallet.trades.entries.contains(where: { $0.status == .pending }) {
+            await wallet.refreshActivity()
+          }
+          do { try await Task.sleep(for: .seconds(6)) } catch { return }
+        }
+      }
       .onChange(of: workspace.selectedAsset.identity) { _, _ in
         draft = TradeDraft(amountText: workspace.selectedAsset.isSolana ? "100" : "")
         limitDraft = LimitOrderDraft()
@@ -134,7 +209,8 @@ struct WorkspaceView: View {
   }
 
   private func finishWelcomeTour() {
-    sectionRaw = WorkspaceSection.markets.rawValue
+    sectionRaw = openPortfolioAfterWelcome
+      ? WorkspaceSection.portfolio.rawValue : WorkspaceSection.markets.rawValue
     completedWelcomeTour = true
   }
 
@@ -211,8 +287,12 @@ struct WorkspaceView: View {
       .frame(maxHeight: .infinity)
       Divider()
       TradingDockView(
-        portfolio: portfolio, selectedMint: asset.isSolana ? asset.id : "", openHolding: openHolding
+        portfolio: portfolio, wallet: wallet, selectedMint: asset.id, selectedChain: asset.chainID,
+        openHolding: openHolding
       )
+      if ResearchProvider.enabledInBuild {
+        Color.clear.frame(height: 60).accessibilityHidden(true)
+      }
     }
     .background(TerminalStyle.canvas)
   }
@@ -266,6 +346,8 @@ struct WorkspaceView: View {
 
 #Preview {
   WorkspaceView().environment(ConnectionStore()).environment(PortfolioStore())
+    .environment(ResearchConversationStore())
+    .environment(WalletStore())
     .environment(TelegramSession.shared).frame(
     width: 1400, height: 900)
 }

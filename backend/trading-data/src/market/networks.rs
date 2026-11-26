@@ -1,4 +1,5 @@
 use crate::{
+    chain_registry,
     execution::{service, types::Provider},
     now, provider_json, ApiError, AppState,
 };
@@ -100,98 +101,41 @@ pub async fn list(state: &AppState) -> Result<Vec<Network>, ApiError> {
             return Ok(rows.clone());
         }
     }
-    if cache.is_none() {
-        if let Some(saved) = state.market_db.networks(now()) {
-            *cache = Some(saved.clone());
-            return Ok(saved.1);
-        }
-    }
-    let old = cache.clone();
-    let relay = state
-        .execution
-        .request(
-            Provider::Relay,
-            Method::GET,
-            service::url("https://api.relay.link/chains"),
-            None,
-            false,
-        )
-        .await;
+    // Saved chart mappings can augment the catalog, but membership always comes from the registry.
+    let previous = cache
+        .clone()
+        .or_else(|| state.market_db.networks(now()))
+        .map(|(_, rows)| rows)
+        .unwrap_or_default();
     let flash = if state.execution.config.ready(Provider::Flash) {
         state.execution.chain_set(Provider::Flash).await.ok()
     } else {
         None
     };
-    // Open known networks immediately. The public network/platform join runs
-    // independently so its rate limit cannot block token metadata or quotes.
-    let mut mapping: HashMap<String, String> =
-        serde_json::from_str(include_str!("network-market-map.json"))
-            .expect("bundled network mapping");
-    if let Some((_, previous)) = &old {
-        for row in previous {
-            if let Some(g) = &row.gecko_id {
-                mapping.insert(row.id.clone(), g.clone());
-            }
-        }
-    }
-    let mut rows = vec![Network {
-        id: "solana".into(),
-        name: "Solana".into(),
-        vm: "svm".into(),
-        gecko_id: Some("solana".into()),
-        explorer_url: Some("https://solscan.io".into()),
-        market_quotes: state.execution.config.ready(Provider::Jupiter),
-        conditional_quotes: flash
-            .as_ref()
-            .is_some_and(|s| s.chains.iter().any(|c| c.id == "solana" && c.enabled)),
-        native_token: Some(Currency {
-            address: "So11111111111111111111111111111111111111112".into(),
-            symbol: "SOL".into(),
-            name: "Solana".into(),
-            decimals: Some(9),
-            image_url: None,
-        }),
-    }];
-    if let Ok(raw) = relay {
-        let parsed = service::relay_chains(&raw).map_err(|_| {
-            ApiError(
-                StatusCode::BAD_GATEWAY,
-                "Networks could not be loaded.".into(),
-            )
-        })?;
-        for chain in parsed.chains.into_iter().filter(|c| c.vm == "evm") {
-            let raw_chain = raw["chains"].as_array().and_then(|cs| {
-                cs.iter().find(|c| {
-                    c["id"].as_u64().map(|id| id.to_string()) == Some(chain.provider_id.clone())
-                })
-            });
-            let supported_flash = flash.as_ref().is_some_and(|s| {
-                s.chains
+    let relay_ready = state.execution.config.ready(Provider::Relay);
+    let mut rows: Vec<_> = chain_registry::catalog()
+        .chains
+        .iter()
+        .map(|entry| {
+            let id = entry.chain_id();
+            let gecko = previous
+                .iter()
+                .find(|row| row.id == id)
+                .and_then(|row| row.gecko_id.clone())
+                .unwrap_or_else(|| entry.gecko_network.clone());
+            let conditional = flash.as_ref().is_some_and(|set| {
+                set.chains
                     .iter()
-                    .any(|c| c.id == chain.id && c.enabled && c.deposit_enabled)
+                    .any(|chain| chain.id == id && chain.enabled && chain.deposit_enabled)
             });
-            rows.push(Network {
-                id: chain.id.clone(),
-                name: chain.name,
-                vm: "evm".into(),
-                gecko_id: mapping.get(&chain.id).cloned(),
-                explorer_url: raw_chain.and_then(|c| https(&c["explorerUrl"])),
-                market_quotes: chain.enabled
-                    && chain.deposit_enabled
-                    && state.execution.config.ready(Provider::Relay)
-                    || supported_flash,
-                conditional_quotes: supported_flash,
-                native_token: raw_chain.and_then(|c| currency(&c["currency"], &chain.id)),
-            });
-        }
-    } else if let Some((_, rows)) = old {
-        return Ok(rows);
-    } else {
-        return Err(ApiError(
-            StatusCode::BAD_GATEWAY,
-            "Networks could not be loaded. Try again shortly.".into(),
-        ));
-    }
+            let market_quotes = if id == "solana" {
+                state.execution.config.ready(Provider::Jupiter)
+            } else {
+                (!entry.disabled && entry.deposit_enabled && relay_ready) || conditional
+            };
+            from_registry(entry, gecko, market_quotes, conditional)
+        })
+        .collect();
     rows.sort_by(|a, b| a.name.cmp(&b.name));
     let timestamp = catalog_timestamp(now(), false);
     *cache = Some((timestamp, rows.clone()));
@@ -210,7 +154,9 @@ pub async fn list(state: &AppState) -> Result<Vec<Network>, ApiError> {
                 match mapping {
                     Ok(mapping) => {
                         for row in rows.iter_mut().filter(|n| n.vm == "evm") {
-                            row.gecko_id = mapping.get(&row.id).cloned();
+                            if let Some(gecko) = mapping.get(&row.id) {
+                                row.gecko_id = Some(gecko.clone());
+                            }
                         }
                         *at = now();
                         let _ = state.market_db.save_networks(rows, *at);
@@ -310,29 +256,58 @@ pub fn merge_mapping(platforms: &Value, networks: &Value, out: &mut HashMap<Stri
         }
     }
 }
+fn from_registry(
+    entry: &chain_registry::Entry,
+    gecko_network: String,
+    market_quotes: bool,
+    conditional_quotes: bool,
+) -> Network {
+    let id = entry.chain_id();
+    // Charts use wrapped SOL as their market mint. The registry keeps the network's native address.
+    let address = if id == "solana" {
+        "So11111111111111111111111111111111111111112".into()
+    } else {
+        canonical(&id, &entry.currency.address)
+    };
+    Network {
+        id,
+        name: entry.display_name.clone(),
+        vm: entry.vm_type.clone(),
+        gecko_id: Some(gecko_network),
+        explorer_url: entry.explorer_url.clone(),
+        market_quotes,
+        conditional_quotes,
+        native_token: Some(Currency {
+            address,
+            symbol: entry.currency.symbol.clone(),
+            name: entry.currency.name.clone(),
+            decimals: Some(entry.currency.decimals),
+            image_url: None,
+        }),
+    }
+}
+
 pub async fn find(state: &AppState, id: &str) -> Result<Network, ApiError> {
+    let unsupported = || {
+        ApiError(
+            StatusCode::BAD_REQUEST,
+            "This chain is not supported.".into(),
+        )
+    };
+    let entry = chain_registry::get(id).ok_or_else(unsupported)?;
     if id == "solana" {
-        return Ok(Network {
-            id: id.into(),
-            name: "Solana".into(),
-            vm: "svm".into(),
-            gecko_id: Some(id.into()),
-            explorer_url: Some("https://solscan.io".into()),
-            market_quotes: true,
-            conditional_quotes: state.execution.config.ready(Provider::Flash),
-            native_token: None,
-        });
+        return Ok(from_registry(
+            entry,
+            entry.gecko_network.clone(),
+            true,
+            state.execution.config.ready(Provider::Flash),
+        ));
     }
     list(state)
         .await?
         .into_iter()
         .find(|n| n.id == id)
-        .ok_or_else(|| {
-            ApiError(
-                StatusCode::BAD_REQUEST,
-                "This chain is not supported.".into(),
-            )
-        })
+        .ok_or_else(unsupported)
 }
 pub async fn currencies(
     state: &AppState,
@@ -347,13 +322,25 @@ pub async fn currencies(
         body.as_object_mut().expect("object").remove("term");
         body["address"] = json!(query);
     }
-    if let Some(chain) = chain {
-        let n = chain
-            .strip_prefix("eip155:")
-            .and_then(|id| id.parse::<u64>().ok())
-            .ok_or_else(|| ApiError(StatusCode::BAD_REQUEST, "Choose an EVM network.".into()))?;
-        body["chainIds"] = json!([n]);
-    }
+    let chain_ids = if let Some(chain) = chain {
+        let entry = chain_registry::get(chain)
+            .filter(|entry| entry.vm_type == "evm")
+            .ok_or_else(|| {
+                ApiError(
+                    StatusCode::BAD_REQUEST,
+                    "Choose a supported EVM network.".into(),
+                )
+            })?;
+        vec![entry.id]
+    } else {
+        chain_registry::catalog()
+            .chains
+            .iter()
+            .filter(|entry| entry.vm_type == "evm")
+            .map(|entry| entry.id)
+            .collect()
+    };
+    body["chainIds"] = json!(chain_ids);
     state
         .execution
         .request(
@@ -401,10 +388,14 @@ mod tests {
     use super::*;
     #[test]
     fn degraded_catalog_retries_without_erasing_verified_bootstrap_coverage() {
-        let mapping: HashMap<String, String> =
-            serde_json::from_str(include_str!("network-market-map.json")).unwrap();
-        assert_eq!(mapping.get("eip155:8453").map(String::as_str), Some("base"));
-        assert_eq!(mapping.get("eip155:56").map(String::as_str), Some("bsc"));
+        assert_eq!(
+            chain_registry::get("eip155:8453").unwrap().gecko_network,
+            "base"
+        );
+        assert_eq!(
+            chain_registry::get("eip155:56").unwrap().gecko_network,
+            "bsc"
+        );
         assert_eq!(catalog_timestamp(10_000, false), 6460);
         assert_eq!(catalog_timestamp(10_000, true), 10_000);
     }

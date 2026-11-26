@@ -2,17 +2,21 @@ import SwiftUI
 
 struct PortfolioView: View {
   let store: PortfolioStore
+  @Environment(WalletStore.self) private var wallet
   @SceneStorage("portfolio.scope") private var scopeRaw = PortfolioScope.all.rawValue
   @SceneStorage("portfolio.period") private var periodRaw = PortfolioPeriod.day.rawValue
   @State private var showNotices = false
   private var scope: PortfolioScope { PortfolioScope(rawValue: scopeRaw) ?? .all }
   private var period: PortfolioPeriod { PortfolioPeriod(rawValue: periodRaw) ?? .day }
-  private var snapshot: PortfolioSnapshot? {
-    return store.views?.view(scope)
-  }
+  private var snapshot: PortfolioSnapshot? { store.snapshot(for: scope) }
   private var connected: Bool {
     if scope == .all { return store.connectedCount > 0 }
+    if scope == .wallet { return store.walletCount > 0 }
     return store.cache?.accounts.contains { $0.source == (scope == .pump ? .pump : .fomo) } == true
+  }
+  private var includesWallet: Bool { scope == .wallet || (scope == .all && store.walletCount > 0) }
+  private var refreshing: Bool {
+    (scope != .wallet && store.isRefreshing) || (includesWallet && store.isWalletRefreshing)
   }
   private var currentPeriod: Bool { snapshot?.period == period }
   let showSidebar: Bool
@@ -36,11 +40,13 @@ struct PortfolioView: View {
         PortfolioHistoryView(
           snapshot: snapshot,
           period: Binding(get: { period }, set: { periodRaw = $0.rawValue }),
-          loading: store.isRefreshing,
-          currentPeriod: currentPeriod)
+          loading: scope != .wallet && store.isRefreshing,
+          currentPeriod: currentPeriod,
+          connectedAccountsOnly: scope == .all && store.walletCount > 0 && !(snapshot?.history.isEmpty ?? true))
         Divider()
         PortfolioHoldingsView(
-          snapshot: snapshot, loading: store.isRefreshing, connected: connected, open: openHolding
+          snapshot: snapshot, loading: refreshing, connected: connected, walletScope: scope == .wallet,
+          open: openHolding
         )
         .frame(maxHeight: .infinity)
       }
@@ -55,15 +61,16 @@ struct PortfolioView: View {
       Text("Portfolio").font(AppTypography.font(size: 22, weight: .semibold))
       Text(subtitle).font(AppTypography.font(size: 14)).foregroundStyle(.secondary).lineLimit(1)
       Button {
-        store.refresh()
+        if scope != .wallet { store.refresh() }
+        if includesWallet { wallet.refreshBalances() }
       } label: {
-        if store.isRefreshing {
+        if refreshing {
           ProgressView().controlSize(.mini).frame(width: 32, height: 28)
         } else {
           Image(systemName: "arrow.clockwise").frame(width: 32, height: 28)
         }
       }
-      .buttonStyle(TerminalControlStyle(fill: .clear)).disabled(store.isRefreshing)
+      .buttonStyle(TerminalControlStyle(fill: .clear)).disabled(refreshing)
       .help("Refresh portfolio").accessibilityLabel("Refresh portfolio")
       TimelineView(.periodic(from: .now, by: 1)) { context in
         if let timestamp = snapshot?.asOf {
@@ -74,14 +81,11 @@ struct PortfolioView: View {
         }
       }
       Spacer(minLength: 4)
-      if !notices.isEmpty || snapshot?.partial == true {
+      if !notices.isEmpty {
         Button {
           showNotices.toggle()
         } label: {
-          Label(
-            snapshot?.partial == true ? "Partial data" : "Data notice",
-            systemImage: "exclamationmark.circle"
-          )
+          Label("Data notice", systemImage: "exclamationmark.circle")
           .font(AppTypography.font(size: 12)).foregroundStyle(.orange).padding(.horizontal, 8)
           .frame(
             height: 28)
@@ -109,10 +113,10 @@ struct PortfolioView: View {
     if scope != .all { return scope.name }
     let count = store.connectedCount
     if let snapshot, snapshot.sourceCount > 0, snapshot.sourceCount < count {
-      return "All accounts · \(snapshot.sourceCount) of \(count) platforms loaded"
+      return "All accounts · \(snapshot.sourceCount) of \(count) sources loaded"
     }
     return
-      "All accounts · \(count) \(store.connectionNotice == nil ? "connected" : "saved") platform\(count == 1 ? "" : "s")"
+      "All accounts · \(count) \(store.connectionNotice == nil ? "connected" : "saved") source\(count == 1 ? "" : "s")"
   }
   private var notices: [String] {
     (snapshot?.warnings ?? []) + (store.error.map { [$0] } ?? [])

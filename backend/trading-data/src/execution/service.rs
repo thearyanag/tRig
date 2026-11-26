@@ -1,4 +1,5 @@
 use super::{config::Config, types::*};
+use crate::chain_registry;
 use axum::http::StatusCode;
 use reqwest::{Method, Url};
 use serde_json::{json, Value};
@@ -203,21 +204,25 @@ impl Service {
                     deposit_enabled: true,
                     native_token: None,
                     minimum_order_usd: None,
+                    rpc_url: None,
                 }],
                 source: "provider contract".into(),
                 at: crate::now(),
                 warning: None,
             }),
-            Provider::Relay => self
-                .request(
-                    p,
-                    Method::GET,
-                    url("https://api.relay.link/chains"),
-                    None,
-                    false,
-                )
-                .await
-                .and_then(|v| relay_chains(&v)),
+            Provider::Relay => {
+                let registry = chain_registry::catalog();
+                return Ok(ChainSet {
+                    chains: registry
+                        .chains
+                        .iter()
+                        .map(|chain| chain.relay_chain())
+                        .collect(),
+                    source: "bundled chain registry".into(),
+                    at: registry.captured_at,
+                    warning: None,
+                });
+            }
             Provider::Flash if self.config.ready(p) => self
                 .request(
                     p,
@@ -397,69 +402,6 @@ impl Service {
 pub fn url(s: &str) -> Url {
     Url::parse(s).expect("fixed provider URL")
 }
-pub fn chain_id(vm: &str, id: u64, name: &str) -> String {
-    if vm == "svm" && name == "solana" {
-        "solana".into()
-    } else if vm == "evm" {
-        format!("eip155:{id}")
-    } else {
-        format!("relay:{id}")
-    }
-}
-pub fn relay_chains(v: &Value) -> Result<ChainSet> {
-    let mut chains = Vec::new();
-    for c in v["chains"]
-        .as_array()
-        .ok_or_else(|| Error::inconsistent(Provider::Relay))?
-        .iter()
-        .take(1000)
-    {
-        let Some(id) = c["id"].as_u64() else { continue };
-        let Some(vm) = c["vmType"].as_str() else {
-            continue;
-        };
-        let Some(name) = c["name"].as_str() else {
-            continue;
-        };
-        let key = chain_id(vm, id, name);
-        let n = &c["currency"];
-        let native = n["address"]
-            .as_str()
-            .zip(n["symbol"].as_str())
-            .zip(n["decimals"].as_u64().and_then(|x| u8::try_from(x).ok()))
-            .map(|((a, s), d)| Token {
-                chain: key.clone(),
-                address: a.into(),
-                symbol: s.into(),
-                decimals: Some(d),
-            });
-        chains.push(Chain {
-            id: key,
-            name: c["displayName"]
-                .as_str()
-                .unwrap_or(name)
-                .chars()
-                .take(80)
-                .collect(),
-            vm: vm.into(),
-            provider_id: id.to_string(),
-            enabled: c["disabled"].as_bool() == Some(false),
-            deposit_enabled: c["depositEnabled"].as_bool() == Some(true),
-            native_token: native,
-            minimum_order_usd: None,
-        });
-    }
-    if chains.is_empty() {
-        return Err(Error::inconsistent(Provider::Relay));
-    }
-    chains.sort_by(|a, b| a.name.cmp(&b.name));
-    Ok(ChainSet {
-        chains,
-        source: "live chain registry".into(),
-        at: crate::now(),
-        warning: None,
-    })
-}
 pub fn flash_chains(v: &Value, schema: bool) -> Result<ChainSet> {
     let mut chains = Vec::new();
     if schema {
@@ -482,6 +424,7 @@ pub fn flash_chains(v: &Value, schema: bool) -> Result<ChainSet> {
                 deposit_enabled: true,
                 native_token: None,
                 minimum_order_usd: None,
+                rpc_url: None,
             });
         }
     } else {
@@ -513,12 +456,29 @@ pub fn flash_chains(v: &Value, schema: bool) -> Result<ChainSet> {
                 deposit_enabled: true,
                 native_token: None,
                 minimum_order_usd: super::amounts::nonnegative(&c["minimumOrderNotionalUsd"]),
+                rpc_url: None,
             });
         }
     }
     if chains.is_empty() {
         return Err(Error::inconsistent(Provider::Flash));
     }
+    chains.retain_mut(|chain| {
+        let entry = if schema {
+            chain_registry::catalog()
+                .chains
+                .iter()
+                .find(|entry| entry.name.eq_ignore_ascii_case(&chain.provider_id))
+        } else {
+            chain_registry::get(&chain.id)
+        };
+        let Some(entry) = entry else {
+            return false;
+        };
+        chain.id = entry.chain_id();
+        chain.name = entry.display_name.clone();
+        true
+    });
     Ok(ChainSet {
         chains,
         source: if schema {

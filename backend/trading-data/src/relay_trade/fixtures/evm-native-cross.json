@@ -1,0 +1,75 @@
+{
+  "protocol": {
+    "v2": {
+      "orderId": "0x2959c58d70748219b3f9986c95d9ab2ea380fc49dbca0b45fe3a4787e4b06fc6",
+      "orderData": {
+        "version": "v1",
+        "solverChainId": "base",
+        "solver": "0xf70da97812cb96acdf810712aa562db8dfa3dbef",
+        "salt": "0x8bd14b38660cada1ac3fb8d1e448af01342e5ea19e06f7d3b0ab6e7c0a899dc0",
+        "inputs": [
+          {
+            "payment": {
+              "chainId": "ethereum",
+              "currency": "0x0000000000000000000000000000000000000000",
+              "amount": "10000000000000000",
+              "weight": "1"
+            },
+            "refunds": [
+              {
+                "chainId": "ethereum",
+                "recipient": "0xf3d63166F0Ca56C3c1A3508FcE03Ff0Cf3Fb691e",
+                "currency": "0x0000000000000000000000000000000000000000",
+                "minimumAmount": "0",
+                "deadline": 1796302156,
+                "extraData": "0x0000000000000000000000000729e2a4716d9f7dd17858d5d504426d228697f7"
+              },
+              {
+                "chainId": "base",
+                "recipient": "0xf3d63166F0Ca56C3c1A3508FcE03Ff0Cf3Fb691e",
+                "currency": "0x0000000000000000000000000000000000000000",
+                "minimumAmount": "0",
+                "deadline": 1796302156,
+                "extraData": "0x0000000000000000000000000729e2a4716d9f7dd17858d5d504426d228697f7"
+              }
+            ]
+          }
+        ],
+        "output": {
+          "chainId": "base",
+          "payments": [
+            {
+              "recipient": "0xf3d63166F0Ca56C3c1A3508FcE03Ff0Cf3Fb691e",
+              "currency": "0x0000000000000000000000000000000000000000",
+              "minimumAmount": "9930581554134658",
+              "expectedAmount": "9980483974004681"
+            }
+          ],
+          "calls": [],
+          "deadline": 1796302156,
+          "extraData": "0x0000000000000000000000000729e2a4716d9f7dd17858d5d504426d228697f7"
+        },
+        "fees": []
+      },
+      "paymentDetails": {
+        "chainId": "ethereum",
+        "depository": "0x4cd00e387622c35bddb9b4c962c136462338bc31",
+        "currency": "0x0000000000000000000000000000000000000000",
+        "amount": "10000000000000000"
+      }
+    }
+  },
+  "steps": [
+    {
+      "id": "deposit",
+      "kind": "transaction",
+      "data": {
+        "from": "0xf3d63166F0Ca56C3c1A3508FcE03Ff0Cf3Fb691e",
+        "to": "0x4cd00e387622c35bddb9b4c962c136462338bc31",
+        "data": "0x49290c1c000000000000000000000000f3d63166f0ca56c3c1a3508fce03ff0cf3fb691e2959c58d70748219b3f9986c95d9ab2ea380fc49dbca0b45fe3a4787e4b06fc6",
+        "value": "10000000000000000",
+        "chainId": 1
+      }
+    }
+  ]
+}

@@ -75,6 +75,8 @@ pub struct Chain {
     pub deposit_enabled: bool,
     pub native_token: Option<Token>,
     pub minimum_order_usd: Option<String>,
+    #[serde(default, skip_serializing)]
+    pub rpc_url: Option<String>,
 }
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]

@@ -1,17 +1,23 @@
 import SwiftUI
 
 struct ExitOrderTicketView: View {
+  @Environment(WalletStore.self) private var walletStore: WalletStore?
   let asset: Asset
   @Binding var exits: ExitOrderDraft
   @Binding var slippage: SlippagePreset
   let referencePrice: Double?
   @State private var takeProfitStore = ExecutionQuoteStore()
   @State private var stopLossStore = ExecutionQuoteStore()
+  @State private var fundingWalletID: UUID?
 
   private var loading: Bool { takeProfitStore.isLoading || stopLossStore.isLoading }
   private func canPreview(_ leg: ExitLegDraft, _ kind: ExitLegKind) -> Bool {
     leg.target.isEnabled && leg.validation(kind: kind, reference: referencePrice) == nil
       && leg.request(kind: kind, asset: asset, slippage: slippage).isValid
+  }
+  private var fundingFamily: WalletFamily? {
+    asset.isSolana ? .solana
+      : FlashOrderAction.family(for: exits.takeProfit.request(kind: .takeProfit, asset: asset, slippage: slippage))
   }
 
   var body: some View {
@@ -24,6 +30,9 @@ struct ExitOrderTicketView: View {
             referencePrice.map { "Current $\(LimitOrderDraft.formatted($0))" } ?? "Loading price…"
           )
           .font(AppTypography.caption).foregroundStyle(.secondary).monospacedDigit()
+        }
+        if let fundingFamily, walletStore != nil {
+          WalletFundingPicker(family: fundingFamily, selection: $fundingWalletID)
         }
         ExitLegEditor(
           kind: .takeProfit, asset: asset, leg: $exits.takeProfit,
@@ -56,34 +65,61 @@ struct ExitOrderTicketView: View {
     }
     .safeAreaInset(edge: .bottom, spacing: 0) {
       VStack(alignment: .leading, spacing: 8) {
-        Button {
-          if canPreview(exits.takeProfit, .takeProfit) {
-            takeProfitStore.load(
-              exits.takeProfit.request(kind: .takeProfit, asset: asset, slippage: slippage))
+        if !asset.isSolana {
+          Button {
+            if canPreview(exits.takeProfit, .takeProfit) {
+              takeProfitStore.load(
+                exits.takeProfit.request(kind: .takeProfit, asset: asset, slippage: slippage))
+            }
+            if canPreview(exits.stopLoss, .stopLoss) {
+              stopLossStore.load(
+                exits.stopLoss.request(kind: .stopLoss, asset: asset, slippage: slippage))
+            }
+          } label: {
+            HStack(spacing: 6) {
+              if loading { ProgressView().controlSize(.mini) }
+              Text(loading ? "Getting exit quotes…" : "Preview exits")
+            }.font(AppTypography.bodySemibold).frame(maxWidth: .infinity).frame(height: 40)
           }
-          if canPreview(exits.stopLoss, .stopLoss) {
-            stopLossStore.load(
-              exits.stopLoss.request(kind: .stopLoss, asset: asset, slippage: slippage))
-          }
-        } label: {
-          HStack(spacing: 6) {
-            if loading { ProgressView().controlSize(.mini) }
-            Text(loading ? "Getting exit quotes…" : "Preview exits")
-          }.font(AppTypography.bodySemibold).frame(maxWidth: .infinity).frame(height: 40)
+          .buttonStyle(TerminalControlStyle.primary)
+          .disabled(
+            loading
+              || (!canPreview(exits.takeProfit, .takeProfit)
+                && !canPreview(exits.stopLoss, .stopLoss))
+          )
         }
-        .buttonStyle(TerminalControlStyle.primary)
-        .disabled(
-          loading
-            || (!canPreview(exits.takeProfit, .takeProfit)
-              && !canPreview(exits.stopLoss, .stopLoss))
-        )
-        Text("Independent quote previews. No orders are linked or placed.")
+        if let fundingFamily,
+          let walletStore,
+          let (wallet, account) = walletStore.funding(walletID: fundingWalletID, family: fundingFamily)
+        {
+          ForEach(ExitLegKind.allCases) { kind in
+            let leg = kind == .takeProfit ? exits.takeProfit : exits.stopLoss
+            if leg.target.isEnabled {
+              Group {
+                let request = leg.request(kind: kind, asset: asset, slippage: slippage)
+                if asset.isSolana {
+                  JupiterTriggerOrderAction(
+                    asset: asset, request: request, walletStore: walletStore, wallet: wallet, account: account,
+                    title: kind.title.lowercased())
+                } else {
+                  FlashOrderAction(
+                    asset: asset, request: request, walletStore: walletStore, wallet: wallet, account: account,
+                    takeProfit: kind == .takeProfit, label: "Review \(kind.title.lowercased())")
+                }
+              }.disabled(!canPreview(leg, kind))
+            }
+          }
+        } else if asset.isSolana {
+          Text("Add a Solana wallet to place exits.").font(AppTypography.caption).foregroundStyle(.secondary)
+        }
+        Text("Exit orders are independent. Each can fill separately.")
           .font(AppTypography.caption).foregroundStyle(.secondary)
           .fixedSize(horizontal: false, vertical: true)
       }.padding(12).background(TerminalStyle.quotePanel)
         .overlay(alignment: .top) { Divider() }
     }
     .font(AppTypography.body)
+    .onChange(of: fundingFamily) { _, _ in fundingWalletID = nil }
     .onDisappear {
       takeProfitStore.clear()
       stopLossStore.clear()

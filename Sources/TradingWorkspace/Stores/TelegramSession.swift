@@ -22,6 +22,10 @@ final class TelegramSession {
 
   private(set) var phase: Phase = .disconnected
   private(set) var accountName: String?
+  private(set) var accountUsername: String?
+  var accountProfileURL: URL? {
+    accountUsername.flatMap { URL(string: "https://t.me/\($0)?profile") }
+  }
   private(set) var issue: String?
   private(set) var busy = false
   private(set) var epoch = UUID()
@@ -47,7 +51,7 @@ final class TelegramSession {
   @ObservationIgnored private let preferences = UserDefaults.standard
 
   var isConnected: Bool { phase == .ready }
-  var needsGracefulClose: Bool { active }
+  var needsGracefulClose: Bool { active || transport != nil }
   var configurationAvailable: Bool {
     (try? TelegramAppCredentials.loadForCurrentBuild(developmentConfig: files.configuration)) != nil
   }
@@ -146,6 +150,11 @@ final class TelegramSession {
   func disconnect() {
     guard isConnected, !busy else { return }
     perform(.logOut)
+  }
+
+  func prepareToQuit() async {
+    await close()
+    await transport?.shutdown()
   }
 
   func close() async {
@@ -285,6 +294,7 @@ final class TelegramSession {
       removeAfterLogout = true
       phase = .closing
       accountName = nil
+      accountUsername = nil
       epoch = UUID()
     case "authorizationStateClosing": phase = .closing
     case "authorizationStateClosed":
@@ -295,6 +305,7 @@ final class TelegramSession {
       lifecycle = UUID()
       epoch = UUID()
       accountName = nil
+      accountUsername = nil
       profileRequest?.cancel()
       changedMessages.removeAll()
       lastChange = nil
@@ -321,6 +332,9 @@ final class TelegramSession {
       let name = [user["first_name"].string, user["last_name"].string]
         .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " ")
       accountName = name.isEmpty ? nil : name
+      accountUsername = user["usernames"]["active_usernames"].array?
+        .compactMap(\.string)
+        .first { $0.range(of: #"\A[A-Za-z0-9_]+\z"#, options: .regularExpression) != nil }
     }
   }
 

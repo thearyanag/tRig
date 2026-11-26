@@ -1,9 +1,19 @@
+mod chain_registry;
 pub mod discovery;
 pub mod execution;
+mod flash_orders;
+mod flash_placement;
+mod jupiter_swap;
+mod jupiter_trigger;
 pub mod market;
 pub mod models;
 pub mod portfolio;
 pub mod quotes;
+mod relay_solana_trade;
+mod relay_trade;
+pub mod research;
+pub mod wallet;
+mod wallet_holdings;
 
 use axum::{
     extract::{Query, State},
@@ -41,6 +51,10 @@ pub struct AppState {
     discovery: Arc<Mutex<HashMap<String, discovery::CachedSearch>>>,
     portfolio: Arc<portfolio::storage::Repository>,
     execution: Arc<execution::service::Service>,
+    jupiter_swaps: Arc<jupiter_swap::Plans>,
+    jupiter_trigger: Arc<jupiter_trigger::Service>,
+    flash_placement: Arc<flash_placement::FlashPlacement>,
+    relay_solana_trade: Arc<relay_solana_trade::Plans>,
     market: Arc<market::Cache>,
     market_db: Arc<market::storage::Repository>,
     upstream: Arc<Mutex<HashMap<String, (Instant, serde_json::Value)>>>,
@@ -63,6 +77,10 @@ pub fn router(
     let state = AppState {
         portfolio: Arc::new(portfolio),
         execution: execution::service::Service::new(quote_config)?,
+        jupiter_swaps: Arc::default(),
+        jupiter_trigger: Arc::new(jupiter_trigger::Service::open(database)?),
+        flash_placement: Arc::new(flash_placement::FlashPlacement::open(database)?),
+        relay_solana_trade: Arc::default(),
         market: Arc::new(market::Cache::default()),
         market_db: Arc::new(market::storage::Repository::open(database)?),
         upstream: Arc::new(Mutex::new(HashMap::new())),
@@ -81,7 +99,7 @@ pub fn router(
         .route(
             "/api/health",
             get(|| async {
-                Json(json!({"status":"ok", "pid":std::process::id(), "mode":"quotes-only"}))
+                Json(json!({"status":"ok", "pid":std::process::id()}))
             }),
         )
         .route("/api/chart/bars", get(bars))
@@ -90,7 +108,35 @@ pub fn router(
         .route("/api/markets/networks", get(market::networks::catalog))
         .route("/api/markets/snapshot", get(market::data::snapshot))
         .route("/api/markets/trades", get(market::data::trades))
+        .route("/api/wallet/networks", get(wallet::networks))
+        .route("/api/wallet/balance", get(wallet::balance))
+        .route("/api/wallet/holdings", get(wallet_holdings::holdings))
+        .route("/api/wallet/transfer/prepare", post(wallet::prepare))
+        .route("/api/wallet/transfer/submit", post(wallet::submit))
+        .route("/api/wallet/transfer/status", get(wallet::status))
         .route("/api/swap/quote", get(quotes::quote))
+        .route("/api/swap/jupiter/prepare", post(jupiter_swap::prepare))
+        .route("/api/swap/jupiter/submit", post(jupiter_swap::submit))
+        .route("/api/swap/jupiter/status", get(jupiter_swap::status))
+        .route("/api/jupiter/trigger/session", get(jupiter_trigger::session_status))
+        .route("/api/jupiter/trigger/auth/challenge", post(jupiter_trigger::challenge))
+        .route("/api/jupiter/trigger/auth/verify", post(jupiter_trigger::verify))
+        .route("/api/jupiter/trigger/prepare", post(jupiter_trigger::prepare))
+        .route("/api/jupiter/trigger/submit", post(jupiter_trigger::submit))
+        .route("/api/jupiter/trigger/orders", get(jupiter_trigger::orders))
+        .route("/api/jupiter/trigger/cancel/challenge", post(jupiter_trigger::cancel_challenge))
+        .route("/api/jupiter/trigger/cancel/prepare", post(jupiter_trigger::cancel_prepare))
+        .route("/api/jupiter/trigger/cancel/submit", post(jupiter_trigger::cancel_submit))
+        .route("/api/flash/orders", get(flash_orders::list))
+        .route("/api/flash/orders/cancel", post(flash_orders::cancel))
+        .route("/api/flash/orders/prepare", post(flash_placement::prepare))
+        .route("/api/flash/orders/submit", post(flash_placement::submit))
+        .route("/api/flash/orders/approve", post(flash_placement::approve))
+        .route("/api/flash/orders/setup-solana", post(flash_placement::setup_solana))
+        .route("/api/wallet/trade/relay/prepare", post(relay_trade::prepare))
+        .route("/api/wallet/trade/relay/status", get(relay_trade::status))
+        .route("/api/wallet/trade/relay/solana/prepare", post(relay_solana_trade::prepare))
+        .route("/api/wallet/trade/relay/solana/submit", post(relay_solana_trade::submit))
         .route("/api/quotes/providers", get(execution::catalog))
         .route(
             "/api/quotes/quote",

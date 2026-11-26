@@ -163,11 +163,8 @@ pub struct Snapshot {
     pub total: Option<Number>,
     pub pnl: Option<Number>,
     pub pnl_percent: Option<Number>,
-    pub unrealized: Option<Number>,
     pub lots: Vec<Lot>,
     pub history: Vec<Point>,
-    pub warnings: Vec<String>,
-    pub partial: bool,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -217,7 +214,6 @@ pub struct PortfolioView {
     pub source_count: usize,
     pub as_of: Option<f64>,
     pub warnings: Vec<String>,
-    pub partial: bool,
     pub history_message: Option<String>,
 }
 #[derive(Serialize)]

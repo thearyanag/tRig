@@ -6,13 +6,14 @@ enum WorkspaceSection: String, CaseIterable, Identifiable {
   var id: Self { self }
 }
 enum PortfolioScope: String, CaseIterable, Identifiable {
-  case all, pump, fomo
+  case all, pump, fomo, wallet
   var id: Self { self }
   var name: String {
     switch self {
     case .all: "All accounts"
     case .pump: "Pumpfun"
     case .fomo: "Fomo"
+    case .wallet: "tRig wallet"
     }
   }
 }
@@ -43,11 +44,12 @@ struct PortfolioViews: Decodable, Sendable {
   let all: PortfolioSnapshot
   let pump: PortfolioSnapshot
   let fomo: PortfolioSnapshot
-  func view(_ scope: PortfolioScope) -> PortfolioSnapshot {
+  func view(_ scope: PortfolioScope) -> PortfolioSnapshot? {
     switch scope {
     case .all: all
     case .pump: pump
     case .fomo: fomo
+    case .wallet: nil
     }
   }
 }
@@ -64,8 +66,18 @@ struct PortfolioSnapshot: Decodable, Sendable {
   let sourceCount: Int
   let asOf: Double?
   let warnings: [String]
-  let partial: Bool
   let historyMessage: String?
+}
+enum PortfolioHoldingSource: String, Decodable, CaseIterable, Sendable {
+  case pump, fomo, wallet
+
+  var name: String {
+    switch self {
+    case .pump: "Pumpfun"
+    case .fomo: "Fomo"
+    case .wallet: "tRig wallet"
+    }
+  }
 }
 struct PortfolioHolding: Decodable, Identifiable, Sendable {
   let id: String
@@ -81,7 +93,7 @@ struct PortfolioHolding: Decodable, Identifiable, Sendable {
   let averageEntryUsd: String?
   let pnlUsd: String?
   let pnlPercent: String?
-  let sources: [ConnectionService]
+  let sources: [PortfolioHoldingSource]
   let lots: [PortfolioLot]
   let warnings: [String]
 }
@@ -100,7 +112,7 @@ struct PortfolioLot: Decodable, Identifiable, Sendable {
   let averageEntryUsd: String?
   let pnlPercent: String?
   let pnlUsd: String?
-  let sources: [ConnectionService]
+  let sources: [PortfolioHoldingSource]
   let warnings: [String]
   let fetchedAt: Double
 }

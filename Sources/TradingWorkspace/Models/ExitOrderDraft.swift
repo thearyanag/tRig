@@ -47,7 +47,7 @@ struct ExitLegDraft {
   }
 }
 
-/// Independent exit previews: no funding wallet, position reservation, or OCO order.
+/// The two exit legs keep separate quantities and chart lines.
 struct ExitOrderDraft {
   private(set) var isEnabled = false
   private var initialized = false

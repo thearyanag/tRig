@@ -1,4 +1,4 @@
-use crate::{models::BarsQuery, now, provider_json, ApiError, AppState};
+use crate::{chain_registry, models::BarsQuery, now, provider_json, ApiError, AppState};
 use axum::{
     extract::{Query, State},
     http::StatusCode,
@@ -94,16 +94,28 @@ pub async fn search(
 ) -> Result<Json<AssetsResponse>, ApiError> {
     let term = query.q.trim();
     let scope = query.chain.as_deref().unwrap_or("all");
+    if scope != "all" && chain_registry::get(scope).is_none() {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            "Unsupported network.".into(),
+        ));
+    }
     if !term.is_empty() && term.len() <= 320 {
-        if let Some((saved, at)) = state.market_db.search(scope, term, now()) {
-            if now().saturating_sub(at) >= 60 {
-                schedule_search_refresh(&state, scope, term).await;
+        if let Some((mut saved, at)) = state.market_db.search(scope, term, now()) {
+            let had_assets = !saved.assets.is_empty();
+            let refresh =
+                keep_registered_assets(&mut saved.assets) || now().saturating_sub(at) >= 60;
+            if !had_assets || !saved.assets.is_empty() {
+                if refresh {
+                    schedule_search_refresh(&state, scope, term).await;
+                }
+                return Ok(Json(saved));
             }
-            return Ok(Json(saved));
         }
     }
     if is_address(term) || crate::market::networks::address("eip155:1", term) {
-        let (known, at) = state.market_db.address_matches(scope, term, now());
+        let (mut known, at) = state.market_db.address_matches(scope, term, now());
+        keep_registered_assets(&mut known);
         if !known.is_empty() {
             schedule_search_refresh(&state, scope, term).await;
             return Ok(Json(AssetsResponse {
@@ -116,6 +128,13 @@ pub async fn search(
         .await
         .map(Json)
 }
+
+fn keep_registered_assets(assets: &mut Vec<Asset>) -> bool {
+    let original = assets.len();
+    assets.retain(|asset| chain_registry::get(&asset.chain_id).is_some());
+    assets.len() != original
+}
+
 async fn schedule_search_refresh(state: &AppState, scope: &str, term: &str) {
     let key = format!("{scope}:{term}");
     if state
@@ -140,6 +159,12 @@ pub async fn resolve(
     Query(query): Query<ResolveQuery>,
 ) -> Result<Json<Asset>, ApiError> {
     let chain = query.chain.as_deref().unwrap_or("solana");
+    if chain_registry::get(chain).is_none() {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            "Unsupported network.".into(),
+        ));
+    }
     if !crate::market::networks::address(chain, &query.mint) {
         return Err(ApiError(
             StatusCode::BAD_REQUEST,
@@ -685,6 +710,18 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn cached_discovery_keeps_only_registered_networks() {
+        let mut results = parse_assets(&document(), BP_MINT, true).unwrap();
+        let mut old_asset = results[0].clone();
+        old_asset.chain_id = "eip155:100".into();
+        results.push(old_asset);
+        assert!(keep_registered_assets(&mut results));
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].chain_id, "solana");
+        assert!(!keep_registered_assets(&mut results));
     }
     #[test]
     fn established_active_market_beats_new_liquidity_and_volume_outlier() {

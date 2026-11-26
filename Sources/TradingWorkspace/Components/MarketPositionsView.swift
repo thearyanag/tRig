@@ -3,14 +3,15 @@ import SwiftUI
 /// Global holdings from the repository; Portfolio filters never narrow this view.
 struct MarketPositionsView: View {
   let snapshot: PortfolioSnapshot?
+  let selectedChain: String
   let selectedMint: String
   let loading: Bool
   let open: (PortfolioHolding) -> Void
   @State private var expanded: Set<String> = []
   private var rows: [PortfolioHolding] {
     (snapshot?.holdings ?? []).sorted {
-      let left = $0.marketMint == selectedMint
-      let right = $1.marketMint == selectedMint
+      let left = isSelected($0)
+      let right = isSelected($1)
       if left != right { return left }
       let a = PortfolioFormat.decimal($0.valueUsd)
       let b = PortfolioFormat.decimal($1.valueUsd)
@@ -44,7 +45,7 @@ struct MarketPositionsView: View {
                 : snapshot?.sourceCount == 0 ? "Positions unavailable" : "No holdings"
             )
             .font(AppTypography.calloutMedium)
-            Text("Connect accounts in Settings to see combined holdings here.").font(
+            Text("Holdings from your tRig wallet and connected accounts appear here.").font(
               AppTypography.caption
             ).foregroundStyle(.secondary)
           }.frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -87,7 +88,7 @@ struct MarketPositionsView: View {
                 }
                 .padding(.horizontal, 16).frame(height: 40)
                 .background(
-                  row.marketMint == selectedMint ? TerminalStyle.accent.opacity(0.10) : .clear
+                  isSelected(row) ? TerminalStyle.accent.opacity(0.10) : .clear
                 )
                 .contentShape(Rectangle()).onTapGesture(count: 2) {
                   if row.marketMint != nil { open(row) }
@@ -117,6 +118,12 @@ struct MarketPositionsView: View {
       }
     }
   }
+  private func isSelected(_ row: PortfolioHolding) -> Bool {
+    guard row.chain == selectedChain, let mint = row.marketMint else { return false }
+    return selectedChain == "solana" ? mint == selectedMint
+      : mint.caseInsensitiveCompare(selectedMint) == .orderedSame
+  }
+
   private func cells(
     quantity: String?, entry: String?, price: String?, pnl: String?, value: String?, width: CGFloat
   ) -> some View {

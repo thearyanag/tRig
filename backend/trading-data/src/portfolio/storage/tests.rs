@@ -32,7 +32,7 @@ fn claim(r: &Repository, p: Period, force: bool, now: f64) -> SyncPlan {
 }
 fn provider(job: &Job, qty: &str, now: f64) -> ProviderInput {
     serde_json::from_value(json!({"source":"pump","accountWallet":job.account_wallet,"period":period(job.period),"fetchedAt":now,
-      "data":{"summary":{"wallet":job.account_wallet,"totalValueUsd":qty,"pnl":{"usd":"1"}},"positionsComplete":true,
+      "data":{"summary":{"wallet":job.account_wallet,"totalValueUsd":qty,"pnl":{"usd":"1"}},
       "positions":[{"coinMint":crate::models::BP_MINT,"chainId":1399811149,"amountHeld":qty,"valueUsd":qty,"tokenPriceUsd":"1","costBasisUsd":"0"}],"history":[]}})).unwrap()
 }
 fn save(r: &Repository, plan: SyncPlan, qty: &str, now: f64) {
@@ -129,8 +129,25 @@ fn failures_keep_last_success_and_back_off() {
     .unwrap();
     let read = r.read(Period::Day, now + 2.0).unwrap();
     assert_eq!(read.views.all.total_value_usd.as_deref(), Some("5"));
-    assert!(read.views.all.partial);
+    assert!(read.cached);
+    assert_eq!(read.views.all.warnings, ["Pumpfun: Refresh unavailable"]);
     assert!(claim(&r, Period::Day, false, now + 2.0).jobs.is_empty());
+}
+#[test]
+fn saved_snapshots_recalculate_unrealized_pnl_from_lots() {
+    let r = repo();
+    connect(&r, A);
+    let now = crate::now() as f64;
+    save(&r, claim(&r, Period::Day, false, now), "5", now);
+    r.db.lock()
+        .unwrap()
+        .execute(
+            "UPDATE portfolio_snapshots SET snapshot=json_set(snapshot,'$.unrealized',NULL,'$.partial',json('true'))",
+            [],
+        )
+        .unwrap();
+    let read = r.read(Period::Day, now).unwrap();
+    assert_eq!(read.views.pump.unrealized_pnl_usd.as_deref(), Some("5"));
 }
 #[test]
 fn account_switch_and_disconnect_reject_inflight_results_and_remove_old_rows() {
@@ -277,7 +294,7 @@ fn invalid_provider_preserves_saved_data_and_raw_credentials_are_never_stored() 
     let saved = r.read(Period::Day, now + 2.0).unwrap();
     assert_eq!(saved.market.total_value_usd.as_deref(), Some("5"));
     assert!(saved.cached);
-    assert!(saved.views.all.partial);
+    assert!(!saved.views.all.warnings.is_empty());
 }
 #[test]
 fn batch_commit_rolls_back_if_any_completion_lost_its_lease() {

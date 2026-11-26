@@ -6,11 +6,22 @@ struct SwapQuoteTicketView: View {
   @Binding var limitDraft: LimitOrderDraft
   @Binding var exitDraft: ExitOrderDraft
   var referencePrice: Double? = nil
+  @Environment(WalletStore.self) private var jupiterWallet: WalletStore?
+  @Environment(PortfolioStore.self) private var portfolio: PortfolioStore?
+  @State private var jupiterWalletID: UUID?
   @State private var store = SwapQuoteStore()
   @State private var review: SwapQuote?
-  @State private var routeMode: ExecutionOrderType?
+  @State private var showRoutes = false
   @FocusState private var amountFocused: Bool
   private var input: SwapQuoteInput { SwapQuoteInput(asset: asset, draft: draft) }
+  private var jupiterBalance: String? {
+    guard let account = jupiterWallet?.funding(walletID: jupiterWalletID, family: .solana)?.account else {
+      return nil
+    }
+    let mint = draft.side == .buy ? SwapQuoteInput.usdc : asset.id
+    let balanceMint = mint == Asset.solana.id ? "11111111111111111111111111111111" : mint
+    return portfolio?.walletBalance(chain: "solana", mint: balanceMint, account: account)
+  }
 
   var body: some View {
     VStack(spacing: 0) {
@@ -27,10 +38,15 @@ struct SwapQuoteTicketView: View {
           asset: asset, trade: $draft, limit: $limitDraft,
           referencePrice: referencePrice ?? asset.priceUsd)
       } else {
-        if asset.isSolana { marketTicket } else { EVMMarketQuoteView(asset: asset, trade: $draft) }
+        if asset.isSolana { marketTicket }
+        else { EVMMarketQuoteView(asset: asset, trade: $draft, openRoutes: { showRoutes = true }) }
       }
     }
     .background(TerminalStyle.quotePanel)
+    .sheet(isPresented: $showRoutes) {
+      ExecutionQuoteView(
+        asset: asset, initialOrderType: .market, initialSide: draft.side, initialAmount: draft.amountText)
+    }
     .onChange(of: draft.side) { _, side in
       if limitDraft.isEnabled {
         limitDraft.setPrice("")
@@ -45,6 +61,9 @@ struct SwapQuoteTicketView: View {
       let fresh = quote?.isFresh(at: context.date) == true
       ScrollView {
         VStack(spacing: 8) {
+          if jupiterWallet != nil {
+            WalletFundingPicker(family: .solana, selection: $jupiterWalletID)
+          }
           SwapTokenAmountView(
             title: "From", asset: asset, usesUSDC: draft.side == .buy,
             amount: $draft.amountText, editable: true,
@@ -54,6 +73,11 @@ struct SwapQuoteTicketView: View {
             amountFocused: $amountFocused,
             selectToken: { changeSide($0 ? .buy : .sell) },
             submit: { store.load(input) })
+          if let balance = jupiterBalance {
+            Text("Available \(balance) \(draft.side == .buy ? "USDC" : asset.symbol)")
+              .font(AppTypography.caption).foregroundStyle(.secondary)
+              .frame(maxWidth: .infinity, alignment: .trailing)
+          }
           Button {
             draft.reverseQuote(asset: asset, quote: quote, at: context.date)
             amountFocused = true
@@ -74,7 +98,7 @@ struct SwapQuoteTicketView: View {
             amountFocused: $amountFocused,
             selectToken: { changeSide($0 ? .sell : .buy) })
           slippage
-          Button("Cross-chain & advanced quotes…") { routeMode = .market }
+          Button("Cross-chain & advanced…") { showRoutes = true }
             .buttonStyle(.plain).font(AppTypography.caption).foregroundStyle(.blue)
             .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 4)
           if asset.id == SwapQuoteInput.usdc {
@@ -120,14 +144,18 @@ struct SwapQuoteTicketView: View {
             amountFocused = false
             if let quote, fresh { review = quote } else { store.load(input) }
           } label: {
-            Text(fresh ? "Review quote" : (store.isLoading ? "Getting quote…" : "Get quote"))
+            Text(
+              fresh ? (jupiterFunding == nil ? "Review quote" : "Review swap")
+                : (store.isLoading ? "Getting quote…" : "Get quote")
+            )
               .font(AppTypography.bodySemibold).frame(maxWidth: .infinity).frame(height: 40)
           }
           .buttonStyle(TerminalControlStyle.primary)
           .disabled(!input.isValid || store.isLoading)
-          Text("Jupiter quotes exclude wallet costs. No order is placed.")
-            .font(AppTypography.caption).foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
+          if jupiterFunding == nil {
+            Text("Add a Solana wallet to trade.")
+              .font(AppTypography.caption).foregroundStyle(.secondary)
+          }
         }
         .padding(12).background(TerminalStyle.quotePanel)
         .overlay(alignment: .top) { Divider() }
@@ -139,12 +167,18 @@ struct SwapQuoteTicketView: View {
       review = nil
     }
     .onDisappear { store.clear() }
-    .sheet(item: $review) { SwapQuoteReviewView(quote: $0) }
-    .sheet(item: $routeMode) {
-      ExecutionQuoteView(
-        asset: asset, initialOrderType: $0, initialSide: draft.side, initialAmount: draft.amountText
-      )
+    .sheet(item: $review) { quote in
+      if let funding = jupiterFunding {
+        JupiterSwapReviewView(quote: quote, wallet: funding.wallet, account: funding.account)
+          .id(funding.account.id)
+      } else {
+        SwapQuoteReviewView(quote: quote)
+      }
     }
+  }
+
+  private var jupiterFunding: (wallet: TradingWallet, account: WalletAccount)? {
+    jupiterWallet?.funding(walletID: jupiterWalletID, family: .solana)
   }
 
   private var sideTabs: some View {
